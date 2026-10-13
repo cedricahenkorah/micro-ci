@@ -4,7 +4,12 @@ GO ?= go
 PORT ?= 4000
 ARGS ?=
 
-.PHONY: help build api worker test vet check fmt health
+# Reuse the existing dotenv dependency without treating .env as shell code.
+# Existing environment variables take precedence over values in .env.
+MIGRATE_RUN = $(GO) run github.com/joho/godotenv/cmd/godotenv \
+	sh -c 'exec migrate -path migrations -database "$${DATABASE_URL:?DATABASE_URL is required}" "$$@"' --
+
+.PHONY: help build api worker test vet check fmt health migrate-up migrate-down migrate-version migrate-new
 
 help: ## Show available shortcuts
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -33,3 +38,21 @@ fmt: ## Format Go source files
 
 health: ## Check the running API's health endpoint (PORT=4000)
 	curl --fail --show-error --silent --include --max-time 5 http://localhost:$(PORT)/api/v1/health
+
+migrate-up: ## Apply all pending migrations using backend/.env
+	@$(MIGRATE_RUN) up
+
+migrate-down: ## Roll back one migration (may delete data)
+	@$(MIGRATE_RUN) down 1
+
+migrate-version: ## Show the current database migration version
+	@$(MIGRATE_RUN) version
+
+migrate-new: export MIGRATION_NAME = $(NAME)
+migrate-new: ## Create empty SQL migration files: NAME=add_run_priority
+	@case "$$MIGRATION_NAME" in \
+		''|[!a-z]*|*[!a-z0-9_]*) \
+			printf '%s\n' 'Set NAME to a lowercase name starting with a letter (letters, digits, underscores).' >&2; \
+			exit 1 ;; \
+	esac
+	@migrate create -ext sql -dir migrations -seq "$$MIGRATION_NAME"
