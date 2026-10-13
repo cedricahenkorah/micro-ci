@@ -9,7 +9,7 @@ ARGS ?=
 MIGRATE_RUN = $(GO) run github.com/joho/godotenv/cmd/godotenv \
 	sh -c 'exec migrate -path migrations -database "$${DATABASE_URL:?DATABASE_URL is required}" "$$@"' --
 
-.PHONY: help build api worker test vet check fmt health migrate-up migrate-down migrate-version migrate-new
+.PHONY: help build api worker test test-integration vet check fmt health migrate-up migrate-down migrate-version migrate-new
 
 help: ## Show available shortcuts
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -27,6 +27,11 @@ worker: build ## Build and run the worker (optional ARGS)
 
 test: ## Run all Go tests
 	$(GO) test ./...
+
+test-integration: ## Run PostgreSQL integration tests with the race detector
+	@$(GO) run github.com/joho/godotenv/cmd/godotenv \
+		sh -c 'export TEST_DATABASE_URL="$${TEST_DATABASE_URL:-$${DATABASE_URL:?Set TEST_DATABASE_URL or DATABASE_URL}}"; exec "$$@"' \
+		-- $(GO) test -tags=integration -race ./internal/repository -count=1 -v
 
 vet: ## Run Go static checks
 	$(GO) vet ./...
