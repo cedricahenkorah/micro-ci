@@ -1,0 +1,32 @@
+# Local project specifications
+/specs/
+
+# Local environment settings
+.env
+.env.*
+!.env.example
+
+# Go build, test, and runtime output
+/backend/bin/
+/backend/dist/
+/backend/micro-ci
+/backend/micro-ci.exe
+/backend/tmp/
+/backend/workspaces/
+/backend/coverage/
+/backend/coverage.out
+*.test
+
+# Next.js dependencies and generated output
+node_modules/
+.next/
+.vercel/
+/web/out/
+/web/build/
+/web/coverage/
+*.tsbuildinfo
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db
