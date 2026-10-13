@@ -1,0 +1,128 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/jackc/pgx/v5"
+)
+
+type Claim struct {
+	Run       domain.Run
+	AttemptID int64
+	WorkerID  string
+}
+
+func (m RunModel) Claim(
+	ctx context.Context,
+	workerID string,
+	leaseDuration time.Duration,
+) (*Claim, error) {
+	if strings.TrimSpace(workerID) == "" {
+		return nil, errors.New("workerID is required")
+	}
+
+	if leaseDuration <= 0 {
+		return nil, errors.New("leaseDuration must be positive")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)
+
+	defer cancel()
+
+	tx, txErr := m.DB.Begin(ctx)
+
+	if txErr != nil {
+		return nil, fmt.Errorf("begin claim transaction: %w", txErr)
+	}
+
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(
+			context.Background(), m.queryTimeout,
+		)
+		defer cleanupCancel()
+
+		_ = tx.Rollback(cleanupCtx)
+	}()
+
+	query := `SELECT id, repository, branch, commit_sha, status,
+           active_attempt_id, cancel_requested_at, created_at
+    FROM runs
+    WHERE status = 'queued'
+    ORDER BY created_at, id
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED`
+
+	var run domain.Run
+
+	txQueryErr := tx.QueryRow(ctx, query).Scan(
+		&run.ID,
+		&run.Repository,
+		&run.Branch,
+		&run.CommitSHA,
+		&run.Status,
+		&run.ActiveAttemptID,
+		&run.CancelRequestedAt,
+		&run.CreatedAt,
+	)
+
+	if errors.Is(txQueryErr, pgx.ErrNoRows) {
+		return nil, nil
+	}
+
+	if txQueryErr != nil {
+		return nil, fmt.Errorf("lock queued run: %w", txQueryErr)
+	}
+
+	insertQuery := `
+    INSERT INTO attempts (run_id, number, worker_id, lease_expires_at)
+    VALUES (
+        $1,
+        (SELECT COALESCE(MAX(number), 0) + 1
+         FROM attempts WHERE run_id = $1),
+        $2,
+        clock_timestamp() + ($3::double precision * interval '1 second')
+    )
+    RETURNING id`
+
+	var attemptID int64
+
+	insertErr := tx.QueryRow(
+		ctx, insertQuery, run.ID, workerID, leaseDuration.Seconds(),
+	).Scan(&attemptID)
+
+	if insertErr != nil {
+		return nil, fmt.Errorf("insert claim attempt: %w", insertErr)
+	}
+
+	updateQuery := `
+    UPDATE runs
+    SET status = 'running', active_attempt_id = $2
+    WHERE id = $1
+    RETURNING status, active_attempt_id`
+
+	updateErr := tx.QueryRow(ctx, updateQuery, run.ID, attemptID).Scan(
+		&run.Status,
+		&run.ActiveAttemptID,
+	)
+
+	if updateErr != nil {
+		return nil, fmt.Errorf("update claimed run: %w", updateErr)
+	}
+
+	commitErr := tx.Commit(ctx)
+
+	if commitErr != nil {
+		return nil, fmt.Errorf("commit claim: %w", commitErr)
+	}
+
+	return &Claim{
+		Run:       run,
+		AttemptID: attemptID,
+		WorkerID:  workerID,
+	}, nil
+}
