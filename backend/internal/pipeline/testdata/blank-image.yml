@@ -1,0 +1,9 @@
+image: " "
+timeoutSeconds: 300
+steps:
+  - name: Install
+    command: npm ci
+  - name: Test
+    command: |
+      npm test
+      npm run build
