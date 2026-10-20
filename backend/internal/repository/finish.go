@@ -105,6 +105,25 @@ func (m RunModel) Finish(
 		return fmt.Errorf("lock finish attempt: %w", err)
 	}
 
+	if outcome.Status == domain.AttemptStatusCancelled {
+		cancelStepsQuery := `
+    UPDATE steps
+    SET status = CASE
+            WHEN status = 'running' THEN 'cancelled'
+            ELSE 'skipped'
+        END,
+        exit_code = NULL,
+        finished_at = clock_timestamp()
+    WHERE attempt_id = $1
+      AND status IN ('running', 'pending')`
+
+		_, cancelStepsErr := tx.Exec(ctx, cancelStepsQuery, claim.AttemptID)
+
+		if cancelStepsErr != nil {
+			return fmt.Errorf("finish cancelled attempt steps: %w", cancelStepsErr)
+		}
+	}
+
 	finishAttemptQuery := `
     UPDATE attempts
     SET status = $2,
