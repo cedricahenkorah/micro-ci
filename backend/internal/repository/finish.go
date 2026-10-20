@@ -85,7 +85,7 @@ func (m RunModel) Finish(
 	}
 
 	attemptQuery := `
-    SELECT id
+    SELECT id, number
     FROM attempts
     WHERE id = $1
       AND run_id = $2
@@ -94,8 +94,9 @@ func (m RunModel) Finish(
     FOR UPDATE`
 
 	var lockedAttemptID int64
+	var attemptNumber int
 
-	err = tx.QueryRow(ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID).Scan(&lockedAttemptID)
+	err = tx.QueryRow(ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID).Scan(&lockedAttemptID, &attemptNumber)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrLeaseLost
@@ -143,6 +144,12 @@ func (m RunModel) Finish(
 		return fmt.Errorf("finish attempt: %w", err)
 	}
 
+	runStatus := domain.RunStatus(outcome.Status)
+
+	if outcome.Status == domain.AttemptStatusFailed && outcome.FailureKind == domain.FailureKindInfrastructure && attemptNumber < 2 {
+		runStatus = domain.RunStatusQueued
+	}
+
 	finishRunQuery := `
     UPDATE runs
     SET status = $2, active_attempt_id = NULL
@@ -153,7 +160,7 @@ func (m RunModel) Finish(
 
 	var finishedRunID int64
 
-	err = tx.QueryRow(ctx, finishRunQuery, claim.Run.ID, domain.RunStatus(outcome.Status), claim.AttemptID).Scan(&finishedRunID)
+	err = tx.QueryRow(ctx, finishRunQuery, claim.Run.ID, runStatus, claim.AttemptID).Scan(&finishedRunID)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrLeaseLost
