@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 func Checkout(
@@ -74,6 +75,7 @@ func Checkout(
 
 func runGit(ctx context.Context, directory string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.WaitDelay = time.Second
 
 	cmd.Dir = directory
 

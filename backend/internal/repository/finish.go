@@ -105,11 +105,11 @@ func (m RunModel) Finish(
 		return fmt.Errorf("lock finish attempt: %w", err)
 	}
 
-	if outcome.Status == domain.AttemptStatusCancelled {
-		cancelStepsQuery := `
+	if outcome.Status == domain.AttemptStatusCancelled || outcome.Status == domain.AttemptStatusTimedOut {
+		interruptStepsQuery := `
     UPDATE steps
     SET status = CASE
-            WHEN status = 'running' THEN 'cancelled'
+            WHEN status = 'running' THEN $2
             ELSE 'skipped'
         END,
         exit_code = NULL,
@@ -117,10 +117,10 @@ func (m RunModel) Finish(
     WHERE attempt_id = $1
       AND status IN ('running', 'pending')`
 
-		_, cancelStepsErr := tx.Exec(ctx, cancelStepsQuery, claim.AttemptID)
+		_, interruptStepsErr := tx.Exec(ctx, interruptStepsQuery, claim.AttemptID, domain.StepStatus(outcome.Status))
 
-		if cancelStepsErr != nil {
-			return fmt.Errorf("finish cancelled attempt steps: %w", cancelStepsErr)
+		if interruptStepsErr != nil {
+			return fmt.Errorf("finish interrupted attempt steps: %w", interruptStepsErr)
 		}
 	}
 

@@ -14,7 +14,9 @@ import (
 	"time"
 )
 
-type DockerExecutor struct{}
+type DockerExecutor struct {
+	CleanupTimeout time.Duration
+}
 
 func (d DockerExecutor) Prepare(
 	ctx context.Context,
@@ -61,7 +63,7 @@ func (d DockerExecutor) Prepare(
 
 		cleanupCtx, cancel := context.WithTimeout(
 			context.Background(),
-			10*time.Second,
+			d.CleanupTimeout,
 		)
 
 		defer cancel()
@@ -177,6 +179,7 @@ func (d DockerExecutor) Exec(
 
 	cmd.Stdout = output
 	cmd.Stderr = output
+	cmd.WaitDelay = time.Second
 
 	runErr := cmd.Run()
 
@@ -205,6 +208,7 @@ func (d DockerExecutor) Exec(
 
 func runDocker(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.WaitDelay = time.Second
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

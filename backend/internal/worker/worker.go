@@ -23,6 +23,12 @@ type executionResult struct {
 }
 
 func Run(ctx context.Context, app *config.Application) error {
+	stopMargin := app.Config.Worker.CleanupTimeout + 3*time.Second
+
+	if app.Config.Worker.HeartbeatInterval >= app.Config.Worker.LeaseDuration-stopMargin {
+		return fmt.Errorf("leaseDuration must exceed heartbeatInterval plus %s cleanup margin", stopMargin)
+	}
+
 	workerID := rand.Text()
 
 	app.InfoLog.Printf(
@@ -141,7 +147,25 @@ func processClaim(
 	app *config.Application,
 	claim repository.Claim,
 ) error {
-	workCtx, cancelWork := context.WithCancel(ctx)
+	stopMargin := app.Config.Worker.CleanupTimeout + 3*time.Second
+
+	stopAt := claim.LeaseExpiresAt.Add(-stopMargin)
+
+	if !time.Now().Before(stopAt) {
+		return domain.ErrLeaseLost
+	}
+
+	leaseCtx, cancelLease := context.WithCancelCause(ctx)
+
+	defer cancelLease(context.Canceled)
+
+	leaseTimer := time.AfterFunc(time.Until(stopAt), func() {
+		cancelLease(domain.ErrLeaseLost)
+	})
+
+	defer leaseTimer.Stop()
+
+	workCtx, cancelWork := context.WithCancel(leaseCtx)
 
 	results := make(chan executionResult, 1)
 	done := make(chan struct{})
@@ -161,48 +185,85 @@ func processClaim(
 	heartbeat := time.NewTicker(app.Config.Worker.HeartbeatInterval)
 	defer heartbeat.Stop()
 
+	cancelRequested := false
+
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-leaseCtx.Done():
+			return context.Cause(leaseCtx)
 
 		case <-heartbeat.C:
 			control, err := app.Models.Runs.Heartbeat(
-				ctx,
+				leaseCtx,
 				claim,
 				app.Config.Worker.LeaseDuration,
 			)
 
-			if err != nil {
-				return fmt.Errorf("heartbeat: %w", err)
+			if leaseCtx.Err() != nil {
+				return context.Cause(leaseCtx)
 			}
 
-			if control.CancelRequested {
-				cancelWork()
-				<-done
+			if err != nil {
+				if errors.Is(err, domain.ErrLeaseLost) {
+					cancelLease(domain.ErrLeaseLost)
+					return err
+				}
 
-				return app.Models.Runs.Finish(ctx, claim, repository.Outcome{
-					Status:      domain.AttemptStatusCancelled,
-					FailureKind: domain.FailureKindCancelled,
-				})
+				app.ErrorLog.Printf(
+					"Heartbeat failed: run=%d attempt_id=%d error=%v",
+					claim.Run.ID, claim.AttemptID, err,
+				)
+				continue
+			}
+
+			nextStopAt := control.LeaseExpiresAt.Add(-stopMargin)
+
+			if !time.Now().Before(stopAt) || !time.Now().Before(nextStopAt) {
+				cancelLease(domain.ErrLeaseLost)
+				return domain.ErrLeaseLost
+			}
+
+			if !leaseTimer.Reset(time.Until(nextStopAt)) {
+				cancelLease(domain.ErrLeaseLost)
+				return domain.ErrLeaseLost
+			}
+
+			stopAt = nextStopAt
+
+			if control.CancelRequested {
+				cancelRequested = true
+				cancelWork()
 			}
 
 		case result := <-results:
 			<-done
 
-			if result.Err != nil {
+			if leaseCtx.Err() != nil {
+				return context.Cause(leaseCtx)
+			}
+
+			if errors.Is(result.Err, domain.ErrLeaseLost) {
+				return result.Err
+			}
+
+			if cancelRequested {
+				result.Outcome = repository.Outcome{
+					Status:      domain.AttemptStatusCancelled,
+					FailureKind: domain.FailureKindCancelled,
+				}
+			} else if result.Err != nil {
 				return result.Err
 			}
 
 			if result.Outcome.Status == domain.AttemptStatusFailed {
-				skipErr := app.Models.Steps.SkipPendingSteps(ctx, claim)
+				skipErr := app.Models.Steps.SkipPendingSteps(leaseCtx, claim)
 
 				if skipErr != nil {
 					return fmt.Errorf("skip pending steps: %w", skipErr)
 				}
 			}
 
-			return app.Models.Runs.Finish(ctx, claim, result.Outcome)
+			return app.Models.Runs.Finish(leaseCtx, claim, result.Outcome)
 		}
 	}
 }
@@ -212,6 +273,24 @@ func executeClaim(
 	app *config.Application,
 	claim repository.Claim,
 ) (outcome repository.Outcome, err error) {
+	parentCtx := ctx
+
+	preparationDeadline := claim.StartedAt.Add(app.Config.Worker.PreparationTimeout)
+
+	ctx, cancelPreparation := context.WithDeadline(parentCtx, preparationDeadline)
+	defer cancelPreparation()
+
+	defer func() {
+		if err == context.DeadlineExceeded && parentCtx.Err() == nil {
+			outcome = repository.Outcome{
+				Status:      domain.AttemptStatusTimedOut,
+				FailureKind: domain.FailureKindTimeout,
+			}
+
+			err = nil
+		}
+	}()
+
 	ctxErr := ctx.Err()
 
 	if ctxErr != nil {
@@ -313,6 +392,20 @@ func executeClaim(
 		}, nil
 	}
 
+	pipelineDeadline := claim.StartedAt.Add(time.Duration(pipelineConfig.TimeoutSeconds) * time.Second)
+
+	pipelineCtx, cancelPipeline := context.WithDeadline(parentCtx, pipelineDeadline)
+	defer cancelPipeline()
+
+	ctx, cancelSetup := context.WithDeadline(pipelineCtx, preparationDeadline)
+	defer cancelSetup()
+
+	cancelPreparation()
+
+	if ctx.Err() != nil {
+		return repository.Outcome{}, ctx.Err()
+	}
+
 	app.InfoLog.Printf(
 		"Pipeline loaded: run=%d attempt_id=%d image=%s steps=%d",
 		claim.Run.ID, claim.AttemptID,
@@ -370,7 +463,7 @@ func executeClaim(
 	defer func() {
 		cleanupCtx, cancelCleanup := context.WithTimeout(
 			context.Background(),
-			10*time.Second,
+			app.Config.Worker.CleanupTimeout,
 		)
 
 		defer cancelCleanup()
@@ -394,6 +487,16 @@ func executeClaim(
 
 		removeWorkspace = true
 	}()
+
+	setupErr := ctx.Err()
+
+	cancelSetup()
+
+	ctx = pipelineCtx
+
+	if setupErr != nil {
+		return repository.Outcome{}, setupErr
+	}
 
 	for i, step := range pipelineConfig.Steps {
 		if ctx.Err() != nil {

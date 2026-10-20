@@ -22,11 +22,13 @@ type Config struct {
 	}
 	ShutdownTimeout time.Duration
 	Worker          struct {
-		Concurrency       int
-		PollInterval      time.Duration
-		LeaseDuration     time.Duration
-		HeartbeatInterval time.Duration
-		WorkspaceRoot     string
+		Concurrency        int
+		PollInterval       time.Duration
+		LeaseDuration      time.Duration
+		HeartbeatInterval  time.Duration
+		PreparationTimeout time.Duration
+		CleanupTimeout     time.Duration
+		WorkspaceRoot      string
 	}
 }
 
@@ -63,6 +65,18 @@ func Load(args []string) (Config, error) {
 		"heartbeatInterval",
 		parseTimeDuration(os.Getenv("WORKER_HEARTBEAT_INTERVAL"), 5*time.Second),
 		"Interval between lease renewals",
+	)
+	flags.DurationVar(
+		&cfg.Worker.PreparationTimeout,
+		"preparationTimeout",
+		parseTimeDuration(os.Getenv("WORKER_PREPARATION_TIMEOUT"), 5*time.Minute),
+		"Maximum time from attempt start to completed preparation",
+	)
+	flags.DurationVar(
+		&cfg.Worker.CleanupTimeout,
+		"cleanupTimeout",
+		parseTimeDuration(os.Getenv("WORKER_CLEANUP_TIMEOUT"), 10*time.Second),
+		"Maximum time to remove an attempt container",
 	)
 
 	concurrency := 2
@@ -141,6 +155,14 @@ func Load(args []string) (Config, error) {
 
 	if cfg.Worker.HeartbeatInterval >= cfg.Worker.LeaseDuration {
 		return cfg, fmt.Errorf("heartbeatInterval must be shorter than leaseDuration")
+	}
+
+	if cfg.Worker.PreparationTimeout <= 0 {
+		return cfg, fmt.Errorf("preparationTimeout must be positive")
+	}
+
+	if cfg.Worker.CleanupTimeout <= 0 {
+		return cfg, fmt.Errorf("cleanupTimeout must be positive")
 	}
 
 	if cfg.Worker.Concurrency <= 0 {

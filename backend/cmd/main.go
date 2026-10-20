@@ -77,7 +77,9 @@ func run() error {
 	case "api":
 		return api.Run(ctx, app)
 	case "worker":
-		app.Executor = executor.DockerExecutor{}
+		app.Executor = executor.DockerExecutor{
+			CleanupTimeout: cfg.Worker.CleanupTimeout,
+		}
 		return worker.Run(ctx, app)
 	}
 

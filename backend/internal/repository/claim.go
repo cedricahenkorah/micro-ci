@@ -12,9 +12,11 @@ import (
 )
 
 type Claim struct {
-	Run       domain.Run
-	AttemptID int64
-	WorkerID  string
+	Run            domain.Run
+	AttemptID      int64
+	WorkerID       string
+	StartedAt      time.Time
+	LeaseExpiresAt time.Time
 }
 
 func (m RunModel) Claim(
@@ -79,21 +81,22 @@ func (m RunModel) Claim(
 	}
 
 	insertQuery := `
-    INSERT INTO attempts (run_id, number, worker_id, lease_expires_at)
+    INSERT INTO attempts (run_id, number, worker_id, started_at, lease_expires_at)
     VALUES (
         $1,
         (SELECT COALESCE(MAX(number), 0) + 1
          FROM attempts WHERE run_id = $1),
         $2,
+        clock_timestamp(),
         clock_timestamp() + ($3::double precision * interval '1 second')
     )
-    RETURNING id`
+    RETURNING id, started_at, lease_expires_at`
 
-	var attemptID int64
+	claim := Claim{Run: run, WorkerID: workerID}
 
 	insertErr := tx.QueryRow(
 		ctx, insertQuery, run.ID, workerID, leaseDuration.Seconds(),
-	).Scan(&attemptID)
+	).Scan(&claim.AttemptID, &claim.StartedAt, &claim.LeaseExpiresAt)
 
 	if insertErr != nil {
 		return nil, fmt.Errorf("insert claim attempt: %w", insertErr)
@@ -105,9 +108,9 @@ func (m RunModel) Claim(
     WHERE id = $1
     RETURNING status, active_attempt_id`
 
-	updateErr := tx.QueryRow(ctx, updateQuery, run.ID, attemptID).Scan(
-		&run.Status,
-		&run.ActiveAttemptID,
+	updateErr := tx.QueryRow(ctx, updateQuery, run.ID, claim.AttemptID).Scan(
+		&claim.Run.Status,
+		&claim.Run.ActiveAttemptID,
 	)
 
 	if updateErr != nil {
@@ -120,9 +123,5 @@ func (m RunModel) Claim(
 		return nil, fmt.Errorf("commit claim: %w", commitErr)
 	}
 
-	return &Claim{
-		Run:       run,
-		AttemptID: attemptID,
-		WorkerID:  workerID,
-	}, nil
+	return &claim, nil
 }
