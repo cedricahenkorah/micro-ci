@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ type Config struct {
 		PollInterval      time.Duration
 		LeaseDuration     time.Duration
 		HeartbeatInterval time.Duration
+		WorkspaceRoot     string
 	}
 }
 
@@ -82,6 +84,19 @@ func Load(args []string) (Config, error) {
 		"Maximum concurrent runs per worker process",
 	)
 
+	workspaceRoot := os.Getenv("WORKER_WORKSPACE_ROOT")
+
+	if workspaceRoot == "" {
+		workspaceRoot = "/tmp/micro-ci/workspaces"
+	}
+
+	flags.StringVar(
+		&cfg.Worker.WorkspaceRoot,
+		"workspaceRoot",
+		workspaceRoot,
+		"Root directory for attempt workspaces",
+	)
+
 	parseFlagErr := flags.Parse(args)
 
 	if parseFlagErr != nil {
@@ -131,6 +146,14 @@ func Load(args []string) (Config, error) {
 	if cfg.Worker.Concurrency <= 0 {
 		return cfg, fmt.Errorf("workerConcurrency must be positive")
 	}
+
+	root, workspaceRootErr := filepath.Abs(cfg.Worker.WorkspaceRoot)
+
+	if workspaceRootErr != nil {
+		return cfg, fmt.Errorf("resolve workspace root: %w", workspaceRootErr)
+	}
+
+	cfg.Worker.WorkspaceRoot = root
 
 	return cfg, nil
 }
