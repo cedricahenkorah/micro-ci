@@ -429,6 +429,120 @@ func (m StepModel) FinishStep(
 	return nil
 }
 
+func (m StepModel) SkipPendingSteps(
+	ctx context.Context,
+	claim Claim,
+) error {
+	if claim.Run.ID <= 0 {
+		return errors.New("runID must be positive")
+	}
+
+	if claim.AttemptID <= 0 {
+		return errors.New("attemptID must be positive")
+	}
+
+	if strings.TrimSpace(claim.WorkerID) == "" {
+		return errors.New("workerID must not be empty")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)
+
+	defer cancel()
+
+	tx, txErr := m.DB.Begin(ctx)
+
+	if txErr != nil {
+		return fmt.Errorf("begin skip pending steps transaction: %w", txErr)
+	}
+
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(
+			context.Background(), m.queryTimeout,
+		)
+		defer cleanupCancel()
+
+		_ = tx.Rollback(cleanupCtx)
+	}()
+
+	runQuery := `
+    SELECT id
+    FROM runs
+    WHERE id = $1
+      AND active_attempt_id = $2
+      AND status = 'running'
+    FOR UPDATE`
+
+	var lockedRunID int64
+
+	runQueryErr := tx.QueryRow(ctx, runQuery, claim.Run.ID, claim.AttemptID).Scan(&lockedRunID)
+
+	if errors.Is(runQueryErr, pgx.ErrNoRows) {
+		return domain.ErrLeaseLost
+	}
+
+	if runQueryErr != nil {
+		return fmt.Errorf("lock skip pending steps run: %w", runQueryErr)
+	}
+
+	attemptQuery := `
+    SELECT id
+    FROM attempts
+    WHERE id = $1
+      AND run_id = $2
+      AND worker_id = $3
+      AND status = 'running'
+    FOR UPDATE`
+
+	var lockedAttemptID int64
+
+	attemptQueryErr := tx.QueryRow(ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID).Scan(&lockedAttemptID)
+
+	if errors.Is(attemptQueryErr, pgx.ErrNoRows) {
+		return domain.ErrLeaseLost
+	}
+
+	if attemptQueryErr != nil {
+		return fmt.Errorf("lock skip pending steps attempt: %w", attemptQueryErr)
+	}
+
+	skipQuery := `
+    UPDATE steps
+    SET status = 'skipped',
+        finished_at = clock_timestamp()
+    WHERE attempt_id = $1
+      AND status = 'pending'`
+
+	_, skipErr := tx.Exec(ctx, skipQuery, claim.AttemptID)
+
+	if skipErr != nil {
+		return fmt.Errorf("skip pending steps: %w", skipErr)
+	}
+
+	leaseQuery := `
+    SELECT id
+    FROM attempts
+    WHERE id = $1
+      AND lease_expires_at > clock_timestamp()`
+
+	var validAttemptID int64
+
+	leaseErr := tx.QueryRow(ctx, leaseQuery, claim.AttemptID).Scan(&validAttemptID)
+
+	if errors.Is(leaseErr, pgx.ErrNoRows) {
+		return domain.ErrLeaseLost
+	}
+
+	if leaseErr != nil {
+		return fmt.Errorf("check skip pending steps lease: %w", leaseErr)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit skip pending steps: %w", err)
+	}
+
+	return nil
+}
+
 func (r StepResult) Validate() error {
 	switch r.Status {
 	case domain.StepStatusSucceeded:

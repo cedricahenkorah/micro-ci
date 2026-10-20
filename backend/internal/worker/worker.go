@@ -194,6 +194,14 @@ func processClaim(
 				return result.Err
 			}
 
+			if result.Outcome.Status == domain.AttemptStatusFailed {
+				skipErr := app.Models.Steps.SkipPendingSteps(ctx, claim)
+
+				if skipErr != nil {
+					return fmt.Errorf("skip pending steps: %w", skipErr)
+				}
+			}
+
 			return app.Models.Runs.Finish(ctx, claim, result.Outcome)
 		}
 	}
