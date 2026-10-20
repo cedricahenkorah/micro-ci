@@ -79,6 +79,8 @@ func (d DockerExecutor) Prepare(
 			return
 		}
 
+		env = Environment{ContainerID: containerName}
+
 		prepareErr = errors.Join(
 			prepareErr,
 			fmt.Errorf("remove partial container %q: %w", containerName, cleanupErr),

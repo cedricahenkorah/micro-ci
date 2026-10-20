@@ -350,6 +350,8 @@ func executeClaim(
 	})
 
 	if prepareErr != nil {
+		removeWorkspace = env.ContainerID == ""
+
 		app.ErrorLog.Printf(
 			"Prepare failed: run=%d attempt_id=%d error=%v",
 			claim.Run.ID, claim.AttemptID, prepareErr,
