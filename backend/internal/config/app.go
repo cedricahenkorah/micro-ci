@@ -4,6 +4,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/cedricahenkorah/micro-ci/backend/internal/executor"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/repository"
 )
 
@@ -13,4 +14,5 @@ type Application struct {
 	Models   repository.Models
 	Config   Config
 	Wg       sync.WaitGroup
+	Executor executor.Executor
 }

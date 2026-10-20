@@ -5,13 +5,22 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/config"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/cedricahenkorah/micro-ci/backend/internal/executor"
+	"github.com/cedricahenkorah/micro-ci/backend/internal/pipeline"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/repository"
 )
+
+type executionResult struct {
+	Outcome repository.Outcome
+	Err     error
+}
 
 func Run(ctx context.Context, app *config.Application) error {
 	workerID := rand.Text()
@@ -23,6 +32,12 @@ func Run(ctx context.Context, app *config.Application) error {
 	)
 
 	var wg sync.WaitGroup
+
+	createWorkspaceErr := os.MkdirAll(app.Config.Worker.WorkspaceRoot, 0755)
+
+	if createWorkspaceErr != nil {
+		return fmt.Errorf("create workspace root: %w", createWorkspaceErr)
+	}
 
 	for slot := 1; slot <= app.Config.Worker.Concurrency; slot++ {
 		wg.Add(1)
@@ -126,8 +141,22 @@ func processClaim(
 	app *config.Application,
 	claim repository.Claim,
 ) error {
-	work := time.NewTimer(10 * time.Second)
-	defer work.Stop()
+	workCtx, cancelWork := context.WithCancel(ctx)
+
+	results := make(chan executionResult, 1)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		outcome, err := executeClaim(workCtx, app, claim)
+		results <- executionResult{Outcome: outcome, Err: err}
+	}()
+
+	defer func() {
+		cancelWork()
+		<-done
+	}()
 
 	heartbeat := time.NewTicker(app.Config.Worker.HeartbeatInterval)
 	defer heartbeat.Stop()
@@ -149,16 +178,314 @@ func processClaim(
 			}
 
 			if control.CancelRequested {
+				cancelWork()
+				<-done
+
 				return app.Models.Runs.Finish(ctx, claim, repository.Outcome{
 					Status:      domain.AttemptStatusCancelled,
 					FailureKind: domain.FailureKindCancelled,
 				})
 			}
 
-		case <-work.C:
-			return app.Models.Runs.Finish(ctx, claim, repository.Outcome{
-				Status: domain.AttemptStatusSucceeded,
-			})
+		case result := <-results:
+			<-done
+
+			if result.Err != nil {
+				return result.Err
+			}
+
+			return app.Models.Runs.Finish(ctx, claim, result.Outcome)
 		}
 	}
+}
+
+func executeClaim(
+	ctx context.Context,
+	app *config.Application,
+	claim repository.Claim,
+) (outcome repository.Outcome, err error) {
+	ctxErr := ctx.Err()
+
+	if ctxErr != nil {
+		return repository.Outcome{}, ctxErr
+	}
+
+	workspace, workspaceErr := os.MkdirTemp(
+		app.Config.Worker.WorkspaceRoot,
+		fmt.Sprintf("attempt-%d-", claim.AttemptID),
+	)
+
+	if workspaceErr != nil {
+		app.ErrorLog.Printf(
+			"Create workspace failed: run=%d attempt_id=%d error=%v",
+			claim.Run.ID, claim.AttemptID, workspaceErr,
+		)
+
+		return repository.Outcome{
+			Status:      domain.AttemptStatusFailed,
+			FailureKind: domain.FailureKindInfrastructure,
+		}, nil
+	}
+
+	removeWorkspace := true
+
+	defer func() {
+		if !removeWorkspace {
+			app.ErrorLog.Printf(
+				"Workspace retained: run=%d attempt_id=%d path=%s",
+				claim.Run.ID, claim.AttemptID, workspace,
+			)
+			return
+		}
+
+		removeErr := os.RemoveAll(workspace)
+
+		if removeErr != nil {
+			app.ErrorLog.Printf(
+				"Remove workspace failed: run=%d attempt_id=%d path=%s error=%v",
+				claim.Run.ID, claim.AttemptID, workspace, removeErr,
+			)
+		}
+	}()
+
+	checkoutErr := executor.Checkout(
+		ctx,
+		claim.Run.Repository,
+		claim.Run.CommitSHA,
+		workspace,
+	)
+
+	if checkoutErr != nil {
+		if ctx.Err() != nil {
+			return repository.Outcome{}, ctx.Err()
+		}
+
+		app.ErrorLog.Printf(
+			"Checkout failed: run=%d attempt_id=%d error=%v",
+			claim.Run.ID, claim.AttemptID, checkoutErr,
+		)
+
+		return repository.Outcome{
+			Status:      domain.AttemptStatusFailed,
+			FailureKind: domain.FailureKindCheckout,
+		}, nil
+	}
+
+	pipelinePath := filepath.Join(workspace, ".micro-ci.yml")
+
+	file, openErr := os.Open(pipelinePath)
+
+	if openErr != nil {
+		if ctx.Err() != nil {
+			return repository.Outcome{}, ctx.Err()
+		}
+
+		app.ErrorLog.Printf("Failed to open %s: run=%d attempt_id=%d error=%v", pipelinePath, claim.Run.ID, claim.AttemptID, openErr)
+
+		return repository.Outcome{
+			Status:      domain.AttemptStatusFailed,
+			FailureKind: domain.FailureKindConfig,
+		}, nil
+	}
+
+	defer file.Close()
+
+	pipelineConfig, parseErr := pipeline.Parse(file)
+
+	if parseErr != nil {
+		if ctx.Err() != nil {
+			return repository.Outcome{}, ctx.Err()
+		}
+
+		app.ErrorLog.Printf("Failed to parse %s: run=%d attempt_id=%d error=%v", pipelinePath, claim.Run.ID, claim.AttemptID, parseErr)
+
+		return repository.Outcome{
+			Status:      domain.AttemptStatusFailed,
+			FailureKind: domain.FailureKindConfig,
+		}, nil
+	}
+
+	app.InfoLog.Printf(
+		"Pipeline loaded: run=%d attempt_id=%d image=%s steps=%d",
+		claim.Run.ID, claim.AttemptID,
+		pipelineConfig.Image, len(pipelineConfig.Steps),
+	)
+
+	stepInputs := make([]repository.CreateStepInput, len(pipelineConfig.Steps))
+
+	for i, step := range pipelineConfig.Steps {
+		stepInputs[i] = repository.CreateStepInput{
+			Name:    step.Name,
+			Command: step.Command,
+		}
+	}
+
+	createStepsErr := app.Models.Steps.CreateSteps(ctx, claim, stepInputs)
+
+	if createStepsErr != nil {
+		if ctx.Err() != nil {
+			return repository.Outcome{}, ctx.Err()
+		}
+
+		return repository.Outcome{}, fmt.Errorf(
+			"create steps: %w",
+			createStepsErr,
+		)
+	}
+
+	removeWorkspace = false
+
+	env, prepareErr := app.Executor.Prepare(ctx, executor.ExecutionSpec{
+		Image:     pipelineConfig.Image,
+		Workspace: workspace,
+		AttemptID: claim.AttemptID,
+	})
+
+	if prepareErr != nil {
+		app.ErrorLog.Printf(
+			"Prepare failed: run=%d attempt_id=%d error=%v",
+			claim.Run.ID, claim.AttemptID, prepareErr,
+		)
+
+		if ctx.Err() != nil {
+			return repository.Outcome{}, ctx.Err()
+		}
+
+		return repository.Outcome{
+			Status:      domain.AttemptStatusFailed,
+			FailureKind: domain.FailureKindInfrastructure,
+		}, nil
+	}
+
+	defer func() {
+		cleanupCtx, cancelCleanup := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+
+		defer cancelCleanup()
+
+		destroyErr := app.Executor.Destroy(cleanupCtx, env)
+
+		if destroyErr != nil {
+			app.ErrorLog.Printf(
+				"Destroy failed: run=%d attempt_id=%d container=%s error=%v",
+				claim.Run.ID, claim.AttemptID, env.ContainerID, destroyErr,
+			)
+
+			if err == nil && outcome.Status == domain.AttemptStatusSucceeded {
+				outcome = repository.Outcome{
+					Status:      domain.AttemptStatusFailed,
+					FailureKind: domain.FailureKindInfrastructure,
+				}
+			}
+			return
+		}
+
+		removeWorkspace = true
+	}()
+
+	for i, step := range pipelineConfig.Steps {
+		if ctx.Err() != nil {
+			return repository.Outcome{}, ctx.Err()
+		}
+
+		startStepErr := app.Models.Steps.StartStep(ctx, claim, i)
+
+		if startStepErr != nil {
+			if ctx.Err() != nil {
+				return repository.Outcome{}, ctx.Err()
+			}
+
+			return repository.Outcome{}, fmt.Errorf(
+				"start step %d: %w",
+				i+1,
+				startStepErr,
+			)
+		}
+
+		app.InfoLog.Printf(
+			"Step started: run=%d attempt_id=%d step=%d name=%q",
+			claim.Run.ID, claim.AttemptID, i+1, step.Name,
+		)
+
+		exitCode, execErr := app.Executor.Exec(
+			ctx,
+			env,
+			step.Command,
+			os.Stdout,
+		)
+
+		if ctx.Err() != nil {
+			return repository.Outcome{}, ctx.Err()
+		}
+
+		stepResult := repository.StepResult{
+			Status: domain.StepStatusFailed,
+		}
+
+		if execErr == nil {
+			stepResult.ExitCode = &exitCode
+
+			if exitCode == 0 {
+				stepResult.Status = domain.StepStatusSucceeded
+			}
+		}
+
+		finishStepErr := app.Models.Steps.FinishStep(
+			ctx,
+			claim,
+			i,
+			stepResult,
+		)
+
+		if finishStepErr != nil {
+			if ctx.Err() != nil {
+				return repository.Outcome{}, ctx.Err()
+			}
+
+			return repository.Outcome{}, fmt.Errorf(
+				"finish step %d: %w",
+				i+1,
+				finishStepErr,
+			)
+		}
+
+		if execErr != nil {
+			app.ErrorLog.Printf(
+				"Step execution failed: run=%d attempt_id=%d step=%d error=%v",
+				claim.Run.ID, claim.AttemptID, i+1, execErr,
+			)
+
+			return repository.Outcome{
+				Status:      domain.AttemptStatusFailed,
+				FailureKind: domain.FailureKindInfrastructure,
+			}, nil
+		}
+
+		if exitCode != 0 {
+			app.ErrorLog.Printf(
+				"Step failed: run=%d attempt_id=%d step=%d exit_code=%d",
+				claim.Run.ID, claim.AttemptID, i+1, exitCode,
+			)
+
+			return repository.Outcome{
+				Status:      domain.AttemptStatusFailed,
+				FailureKind: domain.FailureKindCommand,
+			}, nil
+		}
+
+		app.InfoLog.Printf(
+			"Step succeeded: run=%d attempt_id=%d step=%d name=%q",
+			claim.Run.ID, claim.AttemptID, i+1, step.Name,
+		)
+	}
+
+	if ctx.Err() != nil {
+		return repository.Outcome{}, ctx.Err()
+	}
+
+	return repository.Outcome{
+		Status: domain.AttemptStatusSucceeded,
+	}, nil
 }

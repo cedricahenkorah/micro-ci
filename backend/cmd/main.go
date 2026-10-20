@@ -12,6 +12,7 @@ import (
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/api"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/config"
+	"github.com/cedricahenkorah/micro-ci/backend/internal/executor"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/repository"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/worker"
 )
@@ -76,6 +77,7 @@ func run() error {
 	case "api":
 		return api.Run(ctx, app)
 	case "worker":
+		app.Executor = executor.DockerExecutor{}
 		return worker.Run(ctx, app)
 	}
 
