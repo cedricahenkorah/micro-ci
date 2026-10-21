@@ -6,6 +6,7 @@ import (
 	"github.com/cedricahenkorah/micro-ci/backend/internal/config"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
 )
 
 type Server struct {
@@ -15,6 +16,12 @@ type Server struct {
 func (s *Server) routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: s.app.Config.CORSAllowedOrigins,
+		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
+		AllowedHeaders: []string{"Accept", "Content-Type", "Last-Event-ID"},
+		MaxAge:         300,
+	}))
 
 	r.NotFound(s.notFound)
 

@@ -15,9 +15,10 @@ import (
 )
 
 type Config struct {
-	Port int
-	Env  string
-	Db   struct {
+	Port               int
+	Env                string
+	CORSAllowedOrigins []string
+	Db                 struct {
 		Dsn          string
 		QueryTimeout time.Duration
 	}
@@ -44,6 +45,24 @@ func Load(args []string) (Config, error) {
 
 	if err != nil && !os.IsNotExist(err) {
 		return cfg, fmt.Errorf("load .env: %w", err)
+	}
+
+	origins := os.Getenv("CORS_ALLOWED_ORIGINS")
+
+	if origins == "" {
+		origins = "http://localhost:3000"
+	}
+	for origin := range strings.SplitSeq(origins, ",") {
+		origin = strings.TrimSpace(origin)
+		u, err := url.Parse(origin)
+
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") ||
+			u.Host == "" || u.User != nil || u.Path != "" ||
+			u.RawQuery != "" || u.Fragment != "" {
+			return cfg, fmt.Errorf("CORS_ALLOWED_ORIGINS must contain comma-separated HTTP origins without paths")
+		}
+
+		cfg.CORSAllowedOrigins = append(cfg.CORSAllowedOrigins, origin)
 	}
 
 	cfg.GitHub.Repository = strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY"))
