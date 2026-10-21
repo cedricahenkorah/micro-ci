@@ -118,6 +118,26 @@ func (m RunModel) Claim(
 		return nil, fmt.Errorf("update claimed run: %w", updateErr)
 	}
 
+	attemptEventErr := AppendEvent(ctx, tx, run.ID, CreateEventInput{
+		AttemptID: &claim.AttemptID,
+		Type:      domain.EventTypeAttemptStatus,
+		Payload:   []byte(`{"status":"running"}`),
+	})
+
+	if attemptEventErr != nil {
+		return nil, fmt.Errorf("append claimed attempt event: %w", attemptEventErr)
+	}
+
+	runEventErr := AppendEvent(ctx, tx, run.ID, CreateEventInput{
+		AttemptID: &claim.AttemptID,
+		Type:      domain.EventTypeRunStatus,
+		Payload:   []byte(`{"status":"running"}`),
+	})
+
+	if runEventErr != nil {
+		return nil, fmt.Errorf("append claimed run event: %w", runEventErr)
+	}
+
 	commitErr := tx.Commit(ctx)
 
 	if commitErr != nil {

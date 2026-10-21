@@ -67,6 +67,19 @@ func (m RunModel) CreateRun(
 
 	defer cancel()
 
+	tx, err := m.DB.Begin(ctx)
+
+	if err != nil {
+		return domain.Run{}, fmt.Errorf("begin create run transaction: %w", err)
+	}
+
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), m.queryTimeout)
+		defer cleanupCancel()
+
+		_ = tx.Rollback(cleanupCtx)
+	}()
+
 	query := `INSERT INTO runs (repository, branch, commit_sha, webhook_delivery_id)
 	VALUES ($1, $2, $3, $4)
 	ON CONFLICT (webhook_delivery_id) DO NOTHING
@@ -74,7 +87,7 @@ func (m RunModel) CreateRun(
 
 	var r domain.Run
 
-	err := m.DB.QueryRow(ctx, query, input.Repository, input.Branch, input.CommitSHA, input.DeliveryID).Scan(&r.ID, &r.Repository, &r.Branch, &r.CommitSHA, &r.Status, &r.ActiveAttemptID, &r.CancelRequestedAt, &r.RetryOfRunID, &r.CreatedAt)
+	err = tx.QueryRow(ctx, query, input.Repository, input.Branch, input.CommitSHA, input.DeliveryID).Scan(&r.ID, &r.Repository, &r.Branch, &r.CommitSHA, &r.Status, &r.ActiveAttemptID, &r.CancelRequestedAt, &r.RetryOfRunID, &r.CreatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) && input.DeliveryID != nil {
 		query := `
@@ -83,7 +96,7 @@ func (m RunModel) CreateRun(
         FROM runs
         WHERE webhook_delivery_id = $1`
 
-		err = m.DB.QueryRow(ctx, query, *input.DeliveryID).Scan(
+		err = tx.QueryRow(ctx, query, *input.DeliveryID).Scan(
 			&r.ID,
 			&r.Repository,
 			&r.Branch,
@@ -104,6 +117,19 @@ func (m RunModel) CreateRun(
 
 	if err != nil {
 		return domain.Run{}, fmt.Errorf("create run: %w", err)
+	}
+
+	err = AppendEvent(ctx, tx, r.ID, CreateEventInput{
+		Type:    domain.EventTypeRunStatus,
+		Payload: []byte(`{"status":"queued"}`),
+	})
+
+	if err != nil {
+		return domain.Run{}, fmt.Errorf("append created run event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Run{}, fmt.Errorf("commit create run: %w", err)
 	}
 
 	return r, nil

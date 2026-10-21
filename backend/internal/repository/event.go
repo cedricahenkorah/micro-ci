@@ -24,8 +24,7 @@ type CreateEventInput struct {
 	Payload   json.RawMessage
 }
 
-// The caller owns the transaction and any worker ownership checks.
-func (m EventModel) AppendEvent(ctx context.Context, tx pgx.Tx, runID int64, event CreateEventInput) error {
+func AppendEvent(ctx context.Context, tx pgx.Tx, runID int64, event CreateEventInput) error {
 	if tx == nil {
 		return errors.New("transaction is required")
 	}
@@ -57,10 +56,6 @@ func (m EventModel) AppendEvent(ctx context.Context, tx pgx.Tx, runID int64, eve
 	if !json.Valid(event.Payload) {
 		return errors.New("event payload must be valid JSON")
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)
-
-	defer cancel()
 
 	var lockedRunID int64
 
