@@ -1,0 +1,12 @@
+image: golang:1.26
+timeoutSeconds: 300
+
+steps:
+  - name: Download dependencies
+    command: cd backend && go mod download
+
+  - name: Test
+    command: cd backend && go test ./...
+
+  - name: Vet
+    command: cd backend && go vet ./...
