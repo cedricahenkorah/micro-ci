@@ -28,6 +28,13 @@ func Run(ctx context.Context, app *config.Application) error {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 
+	app.Wg.Add(1)
+
+	go func() {
+		defer app.Wg.Done()
+		recoverExpired(runCtx, app)
+	}()
+
 	shutdown := make(chan error, 1)
 
 	go func() {
@@ -43,8 +50,6 @@ func Run(ctx context.Context, app *config.Application) error {
 
 		if err != nil {
 			_ = httpServer.Close()
-			shutdown <- err
-			return
 		}
 
 		app.InfoLog.Println("Completing the background tasks", map[string]string{
@@ -52,7 +57,7 @@ func Run(ctx context.Context, app *config.Application) error {
 		})
 
 		app.Wg.Wait()
-		shutdown <- nil
+		shutdown <- err
 	}()
 
 	app.InfoLog.Printf("API %s is starting on %s", app.Config.Env, httpServer.Addr)
