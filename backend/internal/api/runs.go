@@ -12,13 +12,13 @@ import (
 	"github.com/cedricahenkorah/micro-ci/backend/internal/repository"
 )
 
-var input struct {
-	Repository string `json:"repository"`
-	Branch     string `json:"branch"`
-	CommitSHA  string `json:"commit_sha"`
-}
-
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Repository string `json:"repository"`
+		Branch     string `json:"branch"`
+		CommitSHA  string `json:"commit_sha"`
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
 	defer r.Body.Close()
