@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
@@ -17,6 +18,7 @@ import (
 const logChunkSize = 16 * 1024
 
 type LogWriter struct {
+	mu           sync.Mutex
 	ctx          context.Context
 	db           *pgxpool.Pool
 	queryTimeout time.Duration
@@ -37,6 +39,9 @@ func NewLogWriter(ctx context.Context, db *pgxpool.Pool, queryTimeout time.Durat
 }
 
 func (w *LogWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.err != nil {
 		return 0, w.err
 	}
@@ -44,13 +49,20 @@ func (w *LogWriter) Write(p []byte) (int, error) {
 	w.buffer = append(w.buffer, p...)
 
 	if len(w.buffer) >= logChunkSize {
-		return len(p), w.Flush()
+		return len(p), w.flush()
 	}
 
 	return len(p), nil
 }
 
-func (w *LogWriter) Flush() (err error) {
+func (w *LogWriter) Flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.flush()
+}
+
+func (w *LogWriter) flush() (err error) {
 	if w.err != nil {
 		return w.err
 	}

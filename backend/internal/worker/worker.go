@@ -535,12 +535,37 @@ func executeClaim(
 			i,
 		)
 
+		commandCtx, cancelCommand := context.WithCancel(ctx)
+		flushDone := make(chan struct{})
+
+		go func() {
+			defer close(flushDone)
+
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-commandCtx.Done():
+					return
+				case <-ticker.C:
+					if err := logWriter.Flush(); err != nil {
+						cancelCommand()
+						return
+					}
+				}
+			}
+		}()
+
 		exitCode, execErr := app.Executor.Exec(
-			ctx,
+			commandCtx,
 			env,
 			step.Command,
 			io.MultiWriter(logWriter, os.Stdout),
 		)
+
+		cancelCommand()
+		<-flushDone
 
 		flushErr := logWriter.Flush()
 
