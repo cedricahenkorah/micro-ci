@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
@@ -117,12 +118,50 @@ func (m RunModel) Finish(
         exit_code = NULL,
         finished_at = clock_timestamp()
     WHERE attempt_id = $1
-      AND status IN ('running', 'pending')`
+      AND status IN ('running', 'pending')
+    RETURNING step_index, status`
 
-		_, interruptStepsErr := tx.Exec(ctx, interruptStepsQuery, claim.AttemptID, domain.StepStatus(outcome.Status))
+		rows, interruptStepsErr := tx.Query(ctx, interruptStepsQuery, claim.AttemptID, domain.StepStatus(outcome.Status))
 
 		if interruptStepsErr != nil {
 			return fmt.Errorf("finish interrupted attempt steps: %w", interruptStepsErr)
+		}
+
+		type interruptedStep struct {
+			Index  int
+			Status domain.StepStatus
+		}
+
+		steps, readErr := pgx.CollectRows(rows, pgx.RowToStructByPos[interruptedStep])
+
+		if readErr != nil {
+			return fmt.Errorf("read interrupted steps: %w", readErr)
+		}
+
+		sort.Slice(steps, func(i, j int) bool {
+			return steps[i].Index < steps[j].Index
+		})
+
+		for _, step := range steps {
+			payload, payloadErr := json.Marshal(struct {
+				Status   domain.StepStatus `json:"status"`
+				ExitCode *int              `json:"exit_code"`
+			}{Status: step.Status})
+
+			if payloadErr != nil {
+				return fmt.Errorf("encode interrupted step %d event: %w", step.Index+1, payloadErr)
+			}
+
+			eventErr := AppendEvent(ctx, tx, claim.Run.ID, CreateEventInput{
+				AttemptID: &claim.AttemptID,
+				Type:      domain.EventTypeStepStatus,
+				StepIndex: &step.Index,
+				Payload:   payload,
+			})
+
+			if eventErr != nil {
+				return fmt.Errorf("append interrupted step %d event: %w", step.Index+1, eventErr)
+			}
 		}
 	}
 

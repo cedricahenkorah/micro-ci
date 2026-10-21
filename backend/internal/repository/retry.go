@@ -89,6 +89,15 @@ func (m RunModel) RetryRun(
 		return domain.Run{}, fmt.Errorf("create retry run: %w", err)
 	}
 
+	err = AppendEvent(ctx, tx, run.ID, CreateEventInput{
+		Type:    domain.EventTypeRunStatus,
+		Payload: []byte(`{"status":"queued"}`),
+	})
+
+	if err != nil {
+		return domain.Run{}, fmt.Errorf("append retry run event: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Run{}, fmt.Errorf("commit retry: %w", err)
 	}

@@ -2,10 +2,13 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/jackc/pgx/v5"
 )
 
 type expiredRun struct {
@@ -118,12 +121,50 @@ SET status = CASE
     exit_code = NULL,
     finished_at = clock_timestamp()
 WHERE attempt_id = $1
-  AND status IN ('running', 'pending')`
+  AND status IN ('running', 'pending')
+RETURNING step_index, status`
 
-		_, stepsErr := tx.Exec(ctx, stepsQuery, run.AttemptID)
+		rows, stepsErr := tx.Query(ctx, stepsQuery, run.AttemptID)
 
 		if stepsErr != nil {
 			return fmt.Errorf("finish expired attempt steps: %w", stepsErr)
+		}
+
+		type recoveredStep struct {
+			Index  int
+			Status domain.StepStatus
+		}
+
+		steps, readErr := pgx.CollectRows(rows, pgx.RowToStructByPos[recoveredStep])
+
+		if readErr != nil {
+			return fmt.Errorf("read recovered steps: %w", readErr)
+		}
+
+		sort.Slice(steps, func(i, j int) bool {
+			return steps[i].Index < steps[j].Index
+		})
+
+		for _, step := range steps {
+			payload, payloadErr := json.Marshal(struct {
+				Status   domain.StepStatus `json:"status"`
+				ExitCode *int              `json:"exit_code"`
+			}{Status: step.Status})
+
+			if payloadErr != nil {
+				return fmt.Errorf("encode recovered step %d event: %w", step.Index+1, payloadErr)
+			}
+
+			eventErr := AppendEvent(ctx, tx, run.RunID, CreateEventInput{
+				AttemptID: &run.AttemptID,
+				Type:      domain.EventTypeStepStatus,
+				StepIndex: &step.Index,
+				Payload:   payload,
+			})
+
+			if eventErr != nil {
+				return fmt.Errorf("append recovered step %d event: %w", step.Index+1, eventErr)
+			}
 		}
 
 		runStatus := domain.RunStatusFailed
@@ -149,6 +190,34 @@ WHERE id = $1
 
 		if runTag.RowsAffected() != 1 {
 			return fmt.Errorf("recover run %d: %w", run.RunID, domain.ErrInvalidState)
+		}
+
+		attemptEventErr := AppendEvent(ctx, tx, run.RunID, CreateEventInput{
+			AttemptID: &run.AttemptID,
+			Type:      domain.EventTypeAttemptStatus,
+			Payload:   []byte(`{"status":"lost","failure_kind":"infrastructure"}`),
+		})
+
+		if attemptEventErr != nil {
+			return fmt.Errorf("append lost attempt event: %w", attemptEventErr)
+		}
+
+		runPayload, runPayloadErr := json.Marshal(struct {
+			Status domain.RunStatus `json:"status"`
+		}{Status: runStatus})
+
+		if runPayloadErr != nil {
+			return fmt.Errorf("encode recovered run event: %w", runPayloadErr)
+		}
+
+		runEventErr := AppendEvent(ctx, tx, run.RunID, CreateEventInput{
+			AttemptID: &run.AttemptID,
+			Type:      domain.EventTypeRunStatus,
+			Payload:   runPayload,
+		})
+
+		if runEventErr != nil {
+			return fmt.Errorf("append recovered run event: %w", runEventErr)
 		}
 	}
 
