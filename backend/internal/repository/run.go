@@ -24,6 +24,25 @@ type CreateRunInput struct {
 	DeliveryID *string
 }
 
+type PaginatedResult[T any] struct {
+	Data         []T   `json:"data"`
+	TotalCount   int64 `json:"totalCount"`
+	TotalPages   int64 `json:"totalPages"`
+	CurrentPage  int64 `json:"currentPage"`
+	HasMore      bool  `json:"hasMore"`
+	ItemsPerPage int   `json:"itemsPerPage"`
+}
+
+type RunDetails struct {
+	domain.Run
+	Attempts []AttemptDetails `json:"attempts"`
+}
+
+type AttemptDetails struct {
+	domain.Attempt
+	Steps []domain.Step `json:"steps"`
+}
+
 func (m RunModel) CreateRun(
 	ctx context.Context,
 	input CreateRunInput,
@@ -88,4 +107,200 @@ func (m RunModel) CreateRun(
 	}
 
 	return r, nil
+}
+
+func (m RunModel) ListRuns(ctx context.Context, limit int, page int64) (PaginatedResult[domain.Run], error) {
+	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)
+	defer cancel()
+
+	tx, err := m.DB.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
+
+	if err != nil {
+		return PaginatedResult[domain.Run]{}, fmt.Errorf("begin run listing transaction: %w", err)
+	}
+
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), m.queryTimeout)
+		defer cleanupCancel()
+
+		_ = tx.Rollback(cleanupCtx)
+	}()
+
+	result := PaginatedResult[domain.Run]{
+		Data:         make([]domain.Run, 0),
+		CurrentPage:  page,
+		ItemsPerPage: limit,
+	}
+
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM runs`).Scan(&result.TotalCount); err != nil {
+		return PaginatedResult[domain.Run]{}, fmt.Errorf("count runs: %w", err)
+	}
+
+	result.TotalPages = (result.TotalCount + int64(limit) - 1) / int64(limit)
+	result.HasMore = page+1 < result.TotalPages
+
+	query := `
+SELECT id, repository, branch, commit_sha, status,
+       active_attempt_id, cancel_requested_at, retry_of_run_id, created_at
+FROM runs
+ORDER BY id DESC
+LIMIT $1 OFFSET $2`
+
+	rows, err := tx.Query(ctx, query, limit, page*int64(limit))
+
+	if err != nil {
+		return PaginatedResult[domain.Run]{}, fmt.Errorf("list runs: %w", err)
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var run domain.Run
+
+		if err := rows.Scan(
+			&run.ID, &run.Repository, &run.Branch, &run.CommitSHA, &run.Status,
+			&run.ActiveAttemptID, &run.CancelRequestedAt, &run.RetryOfRunID, &run.CreatedAt,
+		); err != nil {
+			return PaginatedResult[domain.Run]{}, fmt.Errorf("scan run: %w", err)
+		}
+
+		result.Data = append(result.Data, run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return PaginatedResult[domain.Run]{}, fmt.Errorf("read runs: %w", err)
+	}
+
+	rows.Close()
+
+	if err := tx.Commit(ctx); err != nil {
+		return PaginatedResult[domain.Run]{}, fmt.Errorf("commit run listing transaction: %w", err)
+	}
+
+	return result, nil
+}
+
+func (m RunModel) GetRun(ctx context.Context, runID int64) (RunDetails, error) {
+	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)
+	defer cancel()
+
+	tx, err := m.DB.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
+
+	if err != nil {
+		return RunDetails{}, fmt.Errorf("begin run details transaction: %w", err)
+	}
+
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), m.queryTimeout)
+		defer cleanupCancel()
+
+		_ = tx.Rollback(cleanupCtx)
+	}()
+
+	details := RunDetails{Attempts: make([]AttemptDetails, 0)}
+
+	runQuery := `
+SELECT id, repository, branch, commit_sha, status,
+       active_attempt_id, cancel_requested_at, retry_of_run_id, created_at
+FROM runs
+WHERE id = $1`
+
+	err = tx.QueryRow(ctx, runQuery, runID).Scan(
+		&details.ID, &details.Repository, &details.Branch, &details.CommitSHA, &details.Status,
+		&details.ActiveAttemptID, &details.CancelRequestedAt, &details.RetryOfRunID, &details.CreatedAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RunDetails{}, domain.ErrNotFound
+	}
+
+	if err != nil {
+		return RunDetails{}, fmt.Errorf("get run: %w", err)
+	}
+
+	attemptQuery := `
+SELECT id, run_id, number, worker_id, lease_expires_at,
+       started_at, finished_at, status, COALESCE(failure_kind, '')
+FROM attempts
+WHERE run_id = $1
+ORDER BY number`
+
+	rows, err := tx.Query(ctx, attemptQuery, runID)
+
+	if err != nil {
+		return RunDetails{}, fmt.Errorf("list run attempts: %w", err)
+	}
+
+	defer rows.Close()
+
+	attemptIndexes := make(map[int64]int)
+
+	for rows.Next() {
+		attempt := AttemptDetails{Steps: make([]domain.Step, 0)}
+
+		if err := rows.Scan(
+			&attempt.ID, &attempt.RunID, &attempt.Number, &attempt.WorkerID,
+			&attempt.LeaseExpiresAt, &attempt.StartedAt, &attempt.FinishedAt,
+			&attempt.Status, &attempt.FailureKind,
+		); err != nil {
+			return RunDetails{}, fmt.Errorf("scan run attempt: %w", err)
+		}
+
+		attemptIndexes[attempt.ID] = len(details.Attempts)
+		details.Attempts = append(details.Attempts, attempt)
+	}
+
+	if err := rows.Err(); err != nil {
+		return RunDetails{}, fmt.Errorf("read run attempts: %w", err)
+	}
+
+	rows.Close()
+
+	stepQuery := `
+SELECT s.attempt_id, s.step_index, s.name, s.command, s.status,
+       s.started_at, s.finished_at, s.exit_code
+FROM steps AS s
+JOIN attempts AS a ON a.id = s.attempt_id
+WHERE a.run_id = $1
+ORDER BY a.number, s.step_index`
+
+	rows, err = tx.Query(ctx, stepQuery, runID)
+
+	if err != nil {
+		return RunDetails{}, fmt.Errorf("list run steps: %w", err)
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var step domain.Step
+
+		if err := rows.Scan(
+			&step.AttemptID, &step.Index, &step.Name, &step.Command, &step.Status,
+			&step.StartedAt, &step.FinishedAt, &step.ExitCode,
+		); err != nil {
+			return RunDetails{}, fmt.Errorf("scan run step: %w", err)
+		}
+
+		index := attemptIndexes[step.AttemptID]
+		details.Attempts[index].Steps = append(details.Attempts[index].Steps, step)
+	}
+
+	if err := rows.Err(); err != nil {
+		return RunDetails{}, fmt.Errorf("read run steps: %w", err)
+	}
+
+	rows.Close()
+
+	if err := tx.Commit(ctx); err != nil {
+		return RunDetails{}, fmt.Errorf("commit run details transaction: %w", err)
+	}
+
+	return details, nil
 }
