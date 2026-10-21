@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -140,6 +142,17 @@ func (m StepModel) CreateSteps(
 		if tag.RowsAffected() != 1 {
 			return domain.ErrLeaseLost
 		}
+
+		eventErr := AppendEvent(ctx, tx, claim.Run.ID, CreateEventInput{
+			AttemptID: &claim.AttemptID,
+			Type:      domain.EventTypeStepStatus,
+			StepIndex: &i,
+			Payload:   []byte(`{"status":"pending"}`),
+		})
+
+		if eventErr != nil {
+			return fmt.Errorf("append created step %d event: %w", i+1, eventErr)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -272,6 +285,17 @@ func (m StepModel) StartStep(
 
 	if tag.RowsAffected() != 1 {
 		return domain.ErrLeaseLost
+	}
+
+	eventErr := AppendEvent(ctx, tx, claim.Run.ID, CreateEventInput{
+		AttemptID: &claim.AttemptID,
+		Type:      domain.EventTypeStepStatus,
+		StepIndex: &index,
+		Payload:   []byte(`{"status":"running"}`),
+	})
+
+	if eventErr != nil {
+		return fmt.Errorf("append started step %d event: %w", index+1, eventErr)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -422,6 +446,26 @@ func (m StepModel) FinishStep(
 		return domain.ErrLeaseLost
 	}
 
+	payload, payloadErr := json.Marshal(struct {
+		Status   domain.StepStatus `json:"status"`
+		ExitCode *int              `json:"exit_code"`
+	}{Status: result.Status, ExitCode: result.ExitCode})
+
+	if payloadErr != nil {
+		return fmt.Errorf("encode finished step %d event: %w", index+1, payloadErr)
+	}
+
+	eventErr := AppendEvent(ctx, tx, claim.Run.ID, CreateEventInput{
+		AttemptID: &claim.AttemptID,
+		Type:      domain.EventTypeStepStatus,
+		StepIndex: &index,
+		Payload:   payload,
+	})
+
+	if eventErr != nil {
+		return fmt.Errorf("append finished step %d event: %w", index+1, eventErr)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit finish step: %w", err)
 	}
@@ -510,12 +554,34 @@ func (m StepModel) SkipPendingSteps(
     SET status = 'skipped',
         finished_at = clock_timestamp()
     WHERE attempt_id = $1
-      AND status = 'pending'`
+      AND status = 'pending'
+    RETURNING step_index`
 
-	_, skipErr := tx.Exec(ctx, skipQuery, claim.AttemptID)
+	rows, skipErr := tx.Query(ctx, skipQuery, claim.AttemptID)
 
 	if skipErr != nil {
 		return fmt.Errorf("skip pending steps: %w", skipErr)
+	}
+
+	indexes, readErr := pgx.CollectRows(rows, pgx.RowTo[int])
+
+	if readErr != nil {
+		return fmt.Errorf("read skipped step indexes: %w", readErr)
+	}
+
+	sort.Ints(indexes)
+
+	for _, index := range indexes {
+		eventErr := AppendEvent(ctx, tx, claim.Run.ID, CreateEventInput{
+			AttemptID: &claim.AttemptID,
+			Type:      domain.EventTypeStepStatus,
+			StepIndex: &index,
+			Payload:   []byte(`{"status":"skipped"}`),
+		})
+
+		if eventErr != nil {
+			return fmt.Errorf("append skipped step %d event: %w", index+1, eventErr)
+		}
 	}
 
 	leaseQuery := `
