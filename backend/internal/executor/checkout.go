@@ -36,31 +36,31 @@ func Checkout(
 		return fmt.Errorf("commit SHA must contain only hexadecimal characters")
 	}
 
-	_, initGitErr := runGit(ctx, destination, "init")
+	_, initGitErr := RunGit(ctx, destination, "init")
 
 	if initGitErr != nil {
 		return fmt.Errorf("initialize checkout repository: %w", initGitErr)
 	}
 
-	_, originErr := runGit(ctx, destination, "remote", "add", "origin", repository)
+	_, originErr := RunGit(ctx, destination, "remote", "add", "origin", repository)
 
 	if originErr != nil {
 		return fmt.Errorf("add origin remote: %w", originErr)
 	}
 
-	_, fetchCommitErr := runGit(ctx, destination, "fetch", "--depth=1", "--no-tags", "origin", commitSha)
+	_, fetchCommitErr := RunGit(ctx, destination, "fetch", "--depth=1", "--no-tags", "origin", commitSha)
 
 	if fetchCommitErr != nil {
 		return fmt.Errorf("fetch requested commit: %w", fetchCommitErr)
 	}
 
-	_, checkoutCommitErr := runGit(ctx, destination, "checkout", "--detach", "FETCH_HEAD")
+	_, checkoutCommitErr := RunGit(ctx, destination, "checkout", "--detach", "FETCH_HEAD")
 
 	if checkoutCommitErr != nil {
 		return fmt.Errorf("check out fetched commit: %w", checkoutCommitErr)
 	}
 
-	head, commitHashErr := runGit(ctx, destination, "rev-parse", "HEAD")
+	head, commitHashErr := RunGit(ctx, destination, "rev-parse", "HEAD")
 
 	if commitHashErr != nil {
 		return fmt.Errorf("resolve checked-out commit SHA: %w", commitHashErr)
@@ -73,7 +73,7 @@ func Checkout(
 	return nil
 }
 
-func runGit(ctx context.Context, directory string, args ...string) (string, error) {
+func RunGit(ctx context.Context, directory string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.WaitDelay = time.Second
 
