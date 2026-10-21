@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,7 +22,11 @@ type Config struct {
 		QueryTimeout time.Duration
 	}
 	ShutdownTimeout time.Duration
-	Worker          struct {
+	GitHub          struct {
+		Repository    string
+		WebhookSecret string
+	}
+	Worker struct {
 		Concurrency        int
 		PollInterval       time.Duration
 		LeaseDuration      time.Duration
@@ -39,6 +44,31 @@ func Load(args []string) (Config, error) {
 
 	if err != nil && !os.IsNotExist(err) {
 		return cfg, fmt.Errorf("load .env: %w", err)
+	}
+
+	cfg.GitHub.Repository = strings.TrimSpace(os.Getenv("GITHUB_REPOSITORY"))
+	cfg.GitHub.WebhookSecret = os.Getenv("GITHUB_WEBHOOK_SECRET")
+
+	if cfg.GitHub.Repository != "" || cfg.GitHub.WebhookSecret != "" {
+		repoURL, err := url.Parse(cfg.GitHub.Repository)
+
+		if err != nil || repoURL.Scheme != "https" || repoURL.Host != "github.com" ||
+			repoURL.User != nil || repoURL.RawQuery != "" || repoURL.Fragment != "" {
+			return cfg, fmt.Errorf("GITHUB_REPOSITORY must be an HTTPS GitHub repository URL")
+		}
+
+		fullName := strings.TrimSuffix(strings.TrimPrefix(repoURL.Path, "/"), ".git")
+		owner, repository, ok := strings.Cut(fullName, "/")
+
+		if !ok || owner == "" || repository == "" || strings.Contains(repository, "/") {
+			return cfg, fmt.Errorf("GITHUB_REPOSITORY must use https://github.com/owner/repository with an optional .git suffix")
+		}
+
+		cfg.GitHub.Repository = "https://github.com/" + fullName + ".git"
+
+		if strings.TrimSpace(cfg.GitHub.WebhookSecret) == "" {
+			return cfg, fmt.Errorf("GITHUB_WEBHOOK_SECRET is required when GitHub is configured")
+		}
 	}
 
 	flags := flag.NewFlagSet("micro-ci", flag.ContinueOnError)
