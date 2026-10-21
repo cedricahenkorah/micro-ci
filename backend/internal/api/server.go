@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -23,6 +24,9 @@ func Run(ctx context.Context, app *config.Application) error {
 		IdleTimeout:  time.Minute,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
+		BaseContext: func(net.Listener) context.Context {
+			return ctx
+		},
 	}
 
 	runCtx, cancelRun := context.WithCancel(ctx)

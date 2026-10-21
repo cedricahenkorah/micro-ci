@@ -25,6 +25,7 @@ func (s *Server) routes() http.Handler {
 			r.Post("/runs", s.createRun)
 			r.Get("/runs", s.listRuns)
 			r.Get("/runs/{id}", s.getRun)
+			r.Get("/runs/{id}/events", s.streamEvents)
 			r.Post("/runs/{id}/cancel", s.cancelRun)
 			r.Post("/runs/{id}/retry", s.retryRun)
 		})
