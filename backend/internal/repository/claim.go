@@ -52,7 +52,7 @@ func (m RunModel) Claim(
 	}()
 
 	query := `SELECT id, repository, branch, commit_sha, status,
-           active_attempt_id, cancel_requested_at, created_at
+           active_attempt_id, cancel_requested_at, retry_of_run_id, created_at
     FROM runs
     WHERE status = 'queued'
     ORDER BY created_at, id
@@ -69,6 +69,7 @@ func (m RunModel) Claim(
 		&run.Status,
 		&run.ActiveAttemptID,
 		&run.CancelRequestedAt,
+		&run.RetryOfRunID,
 		&run.CreatedAt,
 	)
 

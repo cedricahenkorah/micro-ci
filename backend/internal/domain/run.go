@@ -22,5 +22,6 @@ type Run struct {
 	Status            RunStatus  `json:"status"`
 	ActiveAttemptID   *int64     `json:"active_attempt_id,omitempty"`
 	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
+	RetryOfRunID      *int64     `json:"retry_of_run_id,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 }

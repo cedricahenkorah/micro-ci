@@ -39,7 +39,7 @@ func (m RunModel) RequestCancel(
 
 	lockQuery := `
 	SELECT id, repository, branch, commit_sha, status,
-	       active_attempt_id, cancel_requested_at, created_at
+	       active_attempt_id, cancel_requested_at, retry_of_run_id, created_at
 	FROM runs
 	WHERE id = $1
 	FOR UPDATE`
@@ -54,6 +54,7 @@ func (m RunModel) RequestCancel(
 		&run.Status,
 		&run.ActiveAttemptID,
 		&run.CancelRequestedAt,
+		&run.RetryOfRunID,
 		&run.CreatedAt,
 	)
 

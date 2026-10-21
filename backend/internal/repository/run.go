@@ -51,16 +51,16 @@ func (m RunModel) CreateRun(
 	query := `INSERT INTO runs (repository, branch, commit_sha, webhook_delivery_id)
 	VALUES ($1, $2, $3, $4)
 	ON CONFLICT (webhook_delivery_id) DO NOTHING
-	RETURNING id, repository, branch, commit_sha, status, active_attempt_id, cancel_requested_at, created_at;`
+	RETURNING id, repository, branch, commit_sha, status, active_attempt_id, cancel_requested_at, retry_of_run_id, created_at;`
 
 	var r domain.Run
 
-	err := m.DB.QueryRow(ctx, query, input.Repository, input.Branch, input.CommitSHA, input.DeliveryID).Scan(&r.ID, &r.Repository, &r.Branch, &r.CommitSHA, &r.Status, &r.ActiveAttemptID, &r.CancelRequestedAt, &r.CreatedAt)
+	err := m.DB.QueryRow(ctx, query, input.Repository, input.Branch, input.CommitSHA, input.DeliveryID).Scan(&r.ID, &r.Repository, &r.Branch, &r.CommitSHA, &r.Status, &r.ActiveAttemptID, &r.CancelRequestedAt, &r.RetryOfRunID, &r.CreatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) && input.DeliveryID != nil {
 		query := `
         SELECT id, repository, branch, commit_sha, status,
-               active_attempt_id, cancel_requested_at, created_at
+               active_attempt_id, cancel_requested_at, retry_of_run_id, created_at
         FROM runs
         WHERE webhook_delivery_id = $1`
 
@@ -72,6 +72,7 @@ func (m RunModel) CreateRun(
 			&r.Status,
 			&r.ActiveAttemptID,
 			&r.CancelRequestedAt,
+			&r.RetryOfRunID,
 			&r.CreatedAt,
 		)
 
