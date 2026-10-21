@@ -15,15 +15,16 @@ help: ## Show available shortcuts
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build bin/micro-ci
-	$(GO) build -o bin/micro-ci ./cmd
+	$(GO) build -o bin/micro-ci ./cmd/micro-ci
 
 # Run from backend/ so the application loads backend/.env.
+# API and worker use their existing entry point, separate from the CLI.
 # Example: make api PORT=4001 ARGS='-env development'
-api: build ## Build and run the API (PORT=4000; optional ARGS)
-	./bin/micro-ci api -port $(PORT) $(ARGS)
+api: ## Run the API (PORT=4000; optional ARGS)
+	$(GO) run ./cmd api -port $(PORT) $(ARGS)
 
-worker: build ## Build and run the worker (optional ARGS)
-	./bin/micro-ci worker $(ARGS)
+worker: ## Run the worker (optional ARGS)
+	$(GO) run ./cmd worker $(ARGS)
 
 test: ## Run all Go tests
 	$(GO) test ./...
