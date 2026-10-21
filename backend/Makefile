@@ -9,13 +9,24 @@ ARGS ?=
 MIGRATE_RUN = $(GO) run github.com/joho/godotenv/cmd/godotenv \
 	sh -c 'exec migrate -path migrations -database "$${DATABASE_URL:?DATABASE_URL is required}" "$$@"' --
 
-.PHONY: help build api worker test test-integration vet check fmt health migrate-up migrate-down migrate-version migrate-new
+.PHONY: help build install uninstall api worker test test-integration vet check fmt health migrate-up migrate-down migrate-version migrate-new
 
 help: ## Show available shortcuts
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build bin/micro-ci
 	$(GO) build -o bin/micro-ci ./cmd/micro-ci
+
+install: ## Install micro-ci into Go's binary directory
+	$(GO) install ./cmd/micro-ci
+
+uninstall: ## Remove the installed micro-ci CLI
+	@cli_bin_dir="$$($(GO) env GOBIN)"; \
+	if [ -z "$$cli_bin_dir" ]; then \
+		cli_go_path="$$($(GO) env GOPATH)"; \
+		cli_bin_dir="$${cli_go_path%%:*}/bin"; \
+	fi; \
+	rm -f "$$cli_bin_dir/micro-ci"
 
 # Run from backend/ so the application loads backend/.env.
 # API and worker use their existing entry point, separate from the CLI.
