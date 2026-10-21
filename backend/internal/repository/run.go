@@ -33,6 +33,12 @@ type PaginatedResult[T any] struct {
 	ItemsPerPage int   `json:"itemsPerPage"`
 }
 
+type RunSummary struct {
+	domain.Run
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+}
+
 type RunDetails struct {
 	domain.Run
 	Attempts []AttemptDetails `json:"attempts"`
@@ -135,7 +141,7 @@ func (m RunModel) CreateRun(
 	return r, nil
 }
 
-func (m RunModel) ListRuns(ctx context.Context, limit int, page int64) (PaginatedResult[domain.Run], error) {
+func (m RunModel) ListRuns(ctx context.Context, limit int, page int64) (PaginatedResult[RunSummary], error) {
 	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)
 	defer cancel()
 
@@ -145,7 +151,7 @@ func (m RunModel) ListRuns(ctx context.Context, limit int, page int64) (Paginate
 	})
 
 	if err != nil {
-		return PaginatedResult[domain.Run]{}, fmt.Errorf("begin run listing transaction: %w", err)
+		return PaginatedResult[RunSummary]{}, fmt.Errorf("begin run listing transaction: %w", err)
 	}
 
 	defer func() {
@@ -155,55 +161,61 @@ func (m RunModel) ListRuns(ctx context.Context, limit int, page int64) (Paginate
 		_ = tx.Rollback(cleanupCtx)
 	}()
 
-	result := PaginatedResult[domain.Run]{
-		Data:         make([]domain.Run, 0),
+	result := PaginatedResult[RunSummary]{
+		Data:         make([]RunSummary, 0),
 		CurrentPage:  page,
 		ItemsPerPage: limit,
 	}
 
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM runs`).Scan(&result.TotalCount); err != nil {
-		return PaginatedResult[domain.Run]{}, fmt.Errorf("count runs: %w", err)
+		return PaginatedResult[RunSummary]{}, fmt.Errorf("count runs: %w", err)
 	}
 
 	result.TotalPages = (result.TotalCount + int64(limit) - 1) / int64(limit)
 	result.HasMore = page+1 < result.TotalPages
 
 	query := `
-SELECT id, repository, branch, commit_sha, status,
-       active_attempt_id, cancel_requested_at, retry_of_run_id, created_at
-FROM runs
-ORDER BY id DESC
-LIMIT $1 OFFSET $2`
+SELECT r.id, r.repository, r.branch, r.commit_sha, r.status,
+       r.active_attempt_id, r.cancel_requested_at, r.retry_of_run_id, r.created_at,
+       timing.started_at,
+       CASE WHEN r.status NOT IN ('queued', 'running') THEN timing.finished_at END
+FROM (SELECT * FROM runs ORDER BY id DESC LIMIT $1 OFFSET $2) r
+LEFT JOIN LATERAL (
+    SELECT MIN(started_at) AS started_at, MAX(finished_at) AS finished_at
+    FROM attempts WHERE run_id = r.id
+) timing ON true
+ORDER BY r.id DESC`
 
 	rows, err := tx.Query(ctx, query, limit, page*int64(limit))
 
 	if err != nil {
-		return PaginatedResult[domain.Run]{}, fmt.Errorf("list runs: %w", err)
+		return PaginatedResult[RunSummary]{}, fmt.Errorf("list runs: %w", err)
 	}
 
 	defer rows.Close()
 
 	for rows.Next() {
-		var run domain.Run
+		var run RunSummary
 
 		if err := rows.Scan(
 			&run.ID, &run.Repository, &run.Branch, &run.CommitSHA, &run.Status,
 			&run.ActiveAttemptID, &run.CancelRequestedAt, &run.RetryOfRunID, &run.CreatedAt,
+			&run.StartedAt, &run.FinishedAt,
 		); err != nil {
-			return PaginatedResult[domain.Run]{}, fmt.Errorf("scan run: %w", err)
+			return PaginatedResult[RunSummary]{}, fmt.Errorf("scan run: %w", err)
 		}
 
 		result.Data = append(result.Data, run)
 	}
 
 	if err := rows.Err(); err != nil {
-		return PaginatedResult[domain.Run]{}, fmt.Errorf("read runs: %w", err)
+		return PaginatedResult[RunSummary]{}, fmt.Errorf("read runs: %w", err)
 	}
 
 	rows.Close()
 
 	if err := tx.Commit(ctx); err != nil {
-		return PaginatedResult[domain.Run]{}, fmt.Errorf("commit run listing transaction: %w", err)
+		return PaginatedResult[RunSummary]{}, fmt.Errorf("commit run listing transaction: %w", err)
 	}
 
 	return result, nil
