@@ -55,7 +55,7 @@ Requires Go 1.26.3+, Git, Make, Docker, PostgreSQL, and [golang-migrate](https:/
    micro-ci run .
    ```
 
-   Stay on a branch. Uncommitted changes are excluded. The CLI prints the run ID; execution output appears in the worker terminal.
+   Stay on a branch. Uncommitted changes are excluded. View the run and logs in the dashboard.
 
 The API defaults to `http://localhost:4000`. Override it with `micro-ci run . --api-url http://localhost:4001`.
 
@@ -73,12 +73,20 @@ Requires Node.js/npm. From the micro-ci directory:
 
 ```sh
 npm --prefix web ci
+cp -n web/.env.example web/.env.local
 npm --prefix web run dev
 ```
+
+Open [localhost:3000/runs](http://localhost:3000/runs).
+
+For custom ports, update `NEXT_PUBLIC_API_URL` in `web/.env.local` and `CORS_ALLOWED_ORIGINS` in `backend/.env`, then restart the servers.
 
 ## Checks
 
 ```sh
+npm --prefix web run lint
+npm --prefix web run typecheck
+npm --prefix web run build
 make -C backend health            # API must be running
 make -C backend check             # Tests + go vet
 make -C backend test-integration  # PostgreSQL required
