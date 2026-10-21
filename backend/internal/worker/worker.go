@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -177,7 +178,7 @@ func processClaim(
 	go func() {
 		defer close(done)
 
-		outcome, err := executeClaim(workCtx, app, claim)
+		outcome, err := executeClaim(workCtx, leaseCtx, app, claim)
 		results <- executionResult{Outcome: outcome, Err: err}
 	}()
 
@@ -273,7 +274,7 @@ func processClaim(
 }
 
 func executeClaim(
-	ctx context.Context,
+	ctx, leaseCtx context.Context,
 	app *config.Application,
 	claim repository.Claim,
 ) (outcome repository.Outcome, err error) {
@@ -526,12 +527,35 @@ func executeClaim(
 			claim.Run.ID, claim.AttemptID, i+1, step.Name,
 		)
 
+		logWriter := NewLogWriter(
+			leaseCtx,
+			app.Models.Events.DB,
+			app.Config.Db.QueryTimeout,
+			claim,
+			i,
+		)
+
 		exitCode, execErr := app.Executor.Exec(
 			ctx,
 			env,
 			step.Command,
-			os.Stdout,
+			io.MultiWriter(logWriter, os.Stdout),
 		)
+
+		flushErr := logWriter.Flush()
+
+		if errors.Is(flushErr, domain.ErrLeaseLost) {
+			return repository.Outcome{}, flushErr
+		}
+
+		if flushErr != nil {
+			app.ErrorLog.Printf(
+				"Log flush failed: run=%d attempt_id=%d step=%d error=%v",
+				claim.Run.ID, claim.AttemptID, i+1, flushErr,
+			)
+
+			execErr = fmt.Errorf("flush step %d logs: %w", i+1, flushErr)
+		}
 
 		if ctx.Err() != nil {
 			return repository.Outcome{}, ctx.Err()
