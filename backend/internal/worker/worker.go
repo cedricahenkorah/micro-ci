@@ -45,6 +45,10 @@ func Run(ctx context.Context, app *config.Application) error {
 		return fmt.Errorf("create workspace root: %w", createWorkspaceErr)
 	}
 
+	wg.Go(func() {
+		cleanupOrphans(ctx, app)
+	})
+
 	for slot := 1; slot <= app.Config.Worker.Concurrency; slot++ {
 		wg.Add(1)
 
