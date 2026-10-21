@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -168,6 +169,43 @@ func (m RunModel) Finish(
 
 	if err != nil {
 		return fmt.Errorf("finish run: %w", err)
+	}
+
+	attemptPayload, attemptPayloadErr := json.Marshal(struct {
+		Status      domain.AttemptStatus `json:"status"`
+		FailureKind domain.FailureKind   `json:"failure_kind,omitempty"`
+	}{Status: outcome.Status, FailureKind: outcome.FailureKind})
+
+	if attemptPayloadErr != nil {
+		return fmt.Errorf("encode finished attempt event: %w", attemptPayloadErr)
+	}
+
+	attemptEventErr := AppendEvent(ctx, tx, claim.Run.ID, CreateEventInput{
+		AttemptID: &claim.AttemptID,
+		Type:      domain.EventTypeAttemptStatus,
+		Payload:   attemptPayload,
+	})
+
+	if attemptEventErr != nil {
+		return fmt.Errorf("append finished attempt event: %w", attemptEventErr)
+	}
+
+	runPayload, runPayloadErr := json.Marshal(struct {
+		Status domain.RunStatus `json:"status"`
+	}{Status: runStatus})
+
+	if runPayloadErr != nil {
+		return fmt.Errorf("encode finished run event: %w", runPayloadErr)
+	}
+
+	runEventErr := AppendEvent(ctx, tx, claim.Run.ID, CreateEventInput{
+		AttemptID: &claim.AttemptID,
+		Type:      domain.EventTypeRunStatus,
+		Payload:   runPayload,
+	})
+
+	if runEventErr != nil {
+		return fmt.Errorf("append finished run event: %w", runEventErr)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

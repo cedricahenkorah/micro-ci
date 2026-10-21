@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -66,7 +68,7 @@ func (m RunModel) RequestCancel(
 		return domain.Run{}, fmt.Errorf("lock cancel run: %w", err)
 	}
 
-	if run.Status == domain.RunStatusQueued || run.Status == domain.RunStatusRunning {
+	if run.Status == domain.RunStatusQueued || (run.Status == domain.RunStatusRunning && run.CancelRequestedAt == nil) {
 		cancelQuery := `
 		UPDATE runs
 		SET cancel_requested_at = COALESCE(
@@ -86,6 +88,25 @@ func (m RunModel) RequestCancel(
 
 		if err != nil {
 			return domain.Run{}, fmt.Errorf("request run cancellation: %w", err)
+		}
+
+		payload, payloadErr := json.Marshal(struct {
+			Status            domain.RunStatus `json:"status"`
+			CancelRequestedAt *time.Time       `json:"cancel_requested_at"`
+		}{Status: run.Status, CancelRequestedAt: run.CancelRequestedAt})
+
+		if payloadErr != nil {
+			return domain.Run{}, fmt.Errorf("encode cancellation event: %w", payloadErr)
+		}
+
+		eventErr := AppendEvent(ctx, tx, runID, CreateEventInput{
+			AttemptID: run.ActiveAttemptID,
+			Type:      domain.EventTypeRunStatus,
+			Payload:   payload,
+		})
+
+		if eventErr != nil {
+			return domain.Run{}, fmt.Errorf("append cancellation event: %w", eventErr)
 		}
 	}
 
