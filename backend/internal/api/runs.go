@@ -79,6 +79,61 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
+	runID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	if err != nil || runID <= 0 {
+		s.clientError(w, http.StatusBadRequest, "id must be a positive run ID")
+		return
+	}
+
+	run, err := s.app.Models.Runs.RequestCancel(r.Context(), runID)
+
+	if errors.Is(err, domain.ErrNotFound) {
+		s.notFound(w, r)
+		return
+	}
+
+	if err != nil {
+		s.serverError(w, err)
+		return
+	}
+
+	if err := s.apiResponse(w, http.StatusOK, run, "", nil); err != nil {
+		s.serverError(w, err)
+	}
+}
+
+func (s *Server) retryRun(w http.ResponseWriter, r *http.Request) {
+	runID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	if err != nil || runID <= 0 {
+		s.clientError(w, http.StatusBadRequest, "id must be a positive run ID")
+		return
+	}
+
+	run, err := s.app.Models.Runs.RetryRun(r.Context(), runID)
+
+	if errors.Is(err, domain.ErrNotFound) {
+		s.notFound(w, r)
+		return
+	}
+
+	if errors.Is(err, domain.ErrInvalidState) {
+		s.clientError(w, http.StatusConflict, "cannot retry a queued or running run")
+		return
+	}
+
+	if err != nil {
+		s.serverError(w, err)
+		return
+	}
+
+	if err := s.apiResponse(w, http.StatusCreated, run, "", nil); err != nil {
+		s.serverError(w, err)
+	}
+}
+
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Repository string `json:"repository"`
