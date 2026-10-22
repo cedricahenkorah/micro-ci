@@ -1,25 +1,27 @@
 BEGIN;
 
 CREATE TABLE runs (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     repository TEXT NOT NULL,
     branch TEXT NOT NULL,
     commit_sha TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'timed_out', 'cancelled')),
-    active_attempt_id BIGINT,
+    active_attempt_id UUID,
     cancel_requested_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     webhook_delivery_id TEXT UNIQUE
 );
+
+CREATE INDEX runs_created_idx ON runs (created_at DESC, id DESC);
 
 -- Workers claim the oldest queued run, using id to break timestamp ties.
 CREATE INDEX runs_queue_idx ON runs (created_at, id)
     WHERE status = 'queued';
 
 CREATE TABLE attempts (
-    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    run_id BIGINT NOT NULL REFERENCES runs (id),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id UUID NOT NULL REFERENCES runs (id),
     number INTEGER NOT NULL CHECK (number > 0),
     worker_id TEXT NOT NULL,
     lease_expires_at TIMESTAMPTZ NOT NULL,
@@ -42,7 +44,7 @@ ALTER TABLE runs ADD CONSTRAINT runs_active_attempt_fkey
     FOREIGN KEY (id, active_attempt_id) REFERENCES attempts (run_id, id);
 
 CREATE TABLE steps (
-    attempt_id BIGINT NOT NULL REFERENCES attempts (id),
+    attempt_id UUID NOT NULL REFERENCES attempts (id),
     step_index INTEGER NOT NULL CHECK (step_index >= 0),
     name TEXT NOT NULL,
     command TEXT NOT NULL,
@@ -55,8 +57,8 @@ CREATE TABLE steps (
 );
 
 CREATE TABLE events (
-    run_id BIGINT NOT NULL REFERENCES runs (id),
-    attempt_id BIGINT,
+    run_id UUID NOT NULL REFERENCES runs (id),
+    attempt_id UUID,
     sequence BIGINT NOT NULL CHECK (sequence > 0),
     type TEXT NOT NULL
         CHECK (type IN ('run.status', 'attempt.status', 'step.status', 'log', 'log.truncated')),

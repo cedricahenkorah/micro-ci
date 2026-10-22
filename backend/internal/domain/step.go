@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type StepStatus string
 
@@ -17,7 +21,7 @@ const (
 
 // Step records a command's execution within an attempt.
 type Step struct {
-	AttemptID  int64      `json:"attempt_id"`
+	AttemptID  uuid.UUID  `json:"attempt_id"`
 	Index      int        `json:"index"`
 	Name       string     `json:"name"`
 	Command    string     `json:"command"`

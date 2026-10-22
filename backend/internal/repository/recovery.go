@@ -8,12 +8,13 @@ import (
 	"sort"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
 type expiredRun struct {
-	RunID           int64
-	AttemptID       int64
+	RunID           uuid.UUID
+	AttemptID       uuid.UUID
 	AttemptNumber   int
 	CancelRequested bool
 }
@@ -189,7 +190,7 @@ WHERE id = $1
 		}
 
 		if runTag.RowsAffected() != 1 {
-			return fmt.Errorf("recover run %d: %w", run.RunID, domain.ErrInvalidState)
+			return fmt.Errorf("recover run %s: %w", run.RunID, domain.ErrInvalidState)
 		}
 
 		attemptEventErr := AppendEvent(ctx, tx, run.RunID, CreateEventInput{

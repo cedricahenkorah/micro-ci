@@ -3,12 +3,14 @@ package executor
 import (
 	"context"
 	"io"
+
+	"github.com/google/uuid"
 )
 
 type ExecutionSpec struct {
 	Image     string
 	Workspace string
-	AttemptID int64
+	AttemptID uuid.UUID
 }
 
 type Environment struct {
@@ -17,7 +19,7 @@ type Environment struct {
 
 type ManagedEnvironment struct {
 	Environment
-	AttemptID int64
+	AttemptID uuid.UUID
 }
 
 type Executor interface {

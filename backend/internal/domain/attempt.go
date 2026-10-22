@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type AttemptStatus string
 
@@ -26,8 +30,8 @@ const (
 
 // Attempt records one execution of a run by a worker holding a lease.
 type Attempt struct {
-	ID             int64         `json:"id"`
-	RunID          int64         `json:"run_id"`
+	ID             uuid.UUID     `json:"id"`
+	RunID          uuid.UUID     `json:"run_id"`
 	Number         int           `json:"number"`
 	WorkerID       string        `json:"worker_id"`
 	LeaseExpiresAt time.Time     `json:"lease_expires_at"`

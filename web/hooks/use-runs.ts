@@ -18,7 +18,7 @@ export function useRuns(page: number) {
   });
 }
 
-export function useRun(id: number) {
+export function useRun(id: string) {
   return useQuery({
     queryKey: runKeys.detail(id),
     queryFn: ({ signal }) => getRun(id, signal),

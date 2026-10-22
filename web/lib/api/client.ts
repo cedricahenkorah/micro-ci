@@ -60,21 +60,21 @@ export function listRuns(page = 0, limit = 20, signal?: AbortSignal) {
   });
 }
 
-export function getRun(id: number, signal?: AbortSignal) {
+export function getRun(id: string, signal?: AbortSignal) {
   return request<RunDetails>({
     url: `/runs/${id}`,
     signal,
   });
 }
 
-export function cancelRun(id: number) {
+export function cancelRun(id: string) {
   return request<Run>({
     method: "POST",
     url: `/runs/${id}/cancel`,
   });
 }
 
-export function retryRun(id: number) {
+export function retryRun(id: string) {
   return request<Run>({
     method: "POST",
     url: `/runs/${id}/retry`,

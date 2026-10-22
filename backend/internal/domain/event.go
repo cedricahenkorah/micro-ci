@@ -3,6 +3,8 @@ package domain
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type EventType string
@@ -17,8 +19,8 @@ const (
 
 // Event is a persisted lifecycle update or log chunk, ordered within a run.
 type Event struct {
-	RunID     int64           `json:"run_id"`
-	AttemptID *int64          `json:"attempt_id,omitempty"`
+	RunID     uuid.UUID       `json:"run_id"`
+	AttemptID *uuid.UUID      `json:"attempt_id,omitempty"`
 	Sequence  int64           `json:"sequence"`
 	Type      EventType       `json:"type"`
 	StepIndex *int            `json:"step_index,omitempty"`

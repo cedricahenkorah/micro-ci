@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
 type Claim struct {
 	Run            domain.Run
-	AttemptID      int64
+	AttemptID      uuid.UUID
 	WorkerID       string
 	StartedAt      time.Time
 	LeaseExpiresAt time.Time

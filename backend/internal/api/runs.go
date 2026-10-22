@@ -14,6 +14,7 @@ import (
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/repository"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
@@ -55,10 +56,10 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
-	runID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	runID, err := uuid.Parse(chi.URLParam(r, "id"))
 
-	if err != nil || runID <= 0 {
-		s.clientError(w, http.StatusBadRequest, "id must be a positive run ID")
+	if err != nil || runID == uuid.Nil {
+		s.clientError(w, http.StatusBadRequest, "id must be a non-zero run UUID")
 		return
 	}
 
@@ -80,10 +81,10 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
-	runID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	runID, err := uuid.Parse(chi.URLParam(r, "id"))
 
-	if err != nil || runID <= 0 {
-		s.clientError(w, http.StatusBadRequest, "id must be a positive run ID")
+	if err != nil || runID == uuid.Nil {
+		s.clientError(w, http.StatusBadRequest, "id must be a non-zero run UUID")
 		return
 	}
 
@@ -105,10 +106,10 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) retryRun(w http.ResponseWriter, r *http.Request) {
-	runID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	runID, err := uuid.Parse(chi.URLParam(r, "id"))
 
-	if err != nil || runID <= 0 {
-		s.clientError(w, http.StatusBadRequest, "id must be a positive run ID")
+	if err != nil || runID == uuid.Nil {
+		s.clientError(w, http.StatusBadRequest, "id must be a non-zero run UUID")
 		return
 	}
 

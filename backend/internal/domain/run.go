@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type RunStatus string
 
@@ -15,13 +19,13 @@ const (
 
 // Run is a request to execute a pipeline at a specific commit.
 type Run struct {
-	ID                int64      `json:"id"`
+	ID                uuid.UUID  `json:"id"`
 	Repository        string     `json:"repository"`
 	Branch            string     `json:"branch"`
 	CommitSHA         string     `json:"commit_sha"`
 	Status            RunStatus  `json:"status"`
-	ActiveAttemptID   *int64     `json:"active_attempt_id,omitempty"`
+	ActiveAttemptID   *uuid.UUID `json:"active_attempt_id,omitempty"`
 	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
-	RetryOfRunID      *int64     `json:"retry_of_run_id,omitempty"`
+	RetryOfRunID      *uuid.UUID `json:"retry_of_run_id,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 }

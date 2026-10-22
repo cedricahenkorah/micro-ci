@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
 import { RunDetail } from "@/components/run-detail";
 import { LoadingRows } from "@/components/query-state";
 
@@ -19,11 +18,7 @@ export default function RunPage({ params }: RunPageProps) {
 
 async function RunPageContent({ params }: RunPageProps) {
   const { id } = await params;
-  const runId = Number(id);
-
-  if (!/^\d+$/.test(id) || !Number.isSafeInteger(runId) || runId <= 0) {
-    notFound();
-  }
+  const runId = id.toLowerCase();
 
   return (
     <RunDetail

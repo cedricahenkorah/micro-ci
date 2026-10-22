@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/config"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/executor"
+	"github.com/google/uuid"
 )
 
 type attemptResources struct {
@@ -44,18 +44,22 @@ func SweepOrphans(ctx context.Context, app *config.Application) error {
 		return fmt.Errorf("list attempt workspaces: %w", err)
 	}
 
-	resources := make(map[int64]*attemptResources)
+	resources := make(map[uuid.UUID]*attemptResources)
 
 	for _, entry := range entries {
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "attempt-") {
 			continue
 		}
 
-		id, suffix, ok := strings.Cut(strings.TrimPrefix(entry.Name(), "attempt-"), "-")
+		name := strings.TrimPrefix(entry.Name(), "attempt-")
 
-		attemptID, err := strconv.ParseInt(id, 10, 64)
+		if len(name) <= 37 || name[36] != '-' {
+			continue
+		}
 
-		if !ok || suffix == "" || err != nil || attemptID <= 0 {
+		attemptID, err := uuid.Parse(name[:36])
+
+		if err != nil || attemptID == uuid.Nil {
 			continue
 		}
 
@@ -99,7 +103,7 @@ func SweepOrphans(ctx context.Context, app *config.Application) error {
 		inactive, err := app.Models.Attempts.IsInactive(ctx, attemptID)
 
 		if err != nil {
-			return errors.Join(cleanupErr, fmt.Errorf("check attempt %d: %w", attemptID, err))
+			return errors.Join(cleanupErr, fmt.Errorf("check attempt %s: %w", attemptID, err))
 		}
 
 		if !inactive {
@@ -117,7 +121,7 @@ func SweepOrphans(ctx context.Context, app *config.Application) error {
 
 			if err != nil {
 				containersRemoved = false
-				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("clean attempt %d: %w", attemptID, err))
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("clean attempt %s: %w", attemptID, err))
 			}
 		}
 

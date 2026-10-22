@@ -6,7 +6,7 @@ import { subscribeToRun, type ConnectionState } from "@/lib/api/events";
 import type { LogEvent } from "@/lib/api/types";
 import { runKeys } from "@/lib/queries";
 
-export function useRunEvents(id: number) {
+export function useRunEvents(id: string) {
   const client = useQueryClient();
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [connection, setConnection] = useState<ConnectionState>("connecting");

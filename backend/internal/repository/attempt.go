@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -13,7 +14,7 @@ type AttemptModel struct {
 	queryTimeout time.Duration
 }
 
-func (m AttemptModel) IsInactive(ctx context.Context, attemptID int64) (bool, error) {
+func (m AttemptModel) IsInactive(ctx context.Context, attemptID uuid.UUID) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)
 	defer cancel()
 

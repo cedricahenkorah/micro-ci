@@ -3,8 +3,9 @@ package executor
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 func (d DockerExecutor) ListManaged(ctx context.Context) ([]ManagedEnvironment, error) {
@@ -31,9 +32,9 @@ func (d DockerExecutor) ListManaged(ctx context.Context) ([]ManagedEnvironment, 
 			return nil, fmt.Errorf("invalid managed container entry: %q", line)
 		}
 
-		attemptID, err := strconv.ParseInt(fields[1], 10, 64)
+		attemptID, err := uuid.Parse(fields[1])
 
-		if err != nil || attemptID <= 0 {
+		if err != nil || attemptID == uuid.Nil {
 			return nil, fmt.Errorf("invalid attempt ID for container %s: %q", fields[0], fields[1])
 		}
 

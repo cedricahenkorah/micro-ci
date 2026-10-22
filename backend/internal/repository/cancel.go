@@ -8,15 +8,16 @@ import (
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
 func (m RunModel) RequestCancel(
 	ctx context.Context,
-	runID int64,
+	runID uuid.UUID,
 ) (domain.Run, error) {
-	if runID <= 0 {
-		return domain.Run{}, errors.New("runID must be positive")
+	if runID == uuid.Nil {
+		return domain.Run{}, errors.New("runID must be a non-zero UUID")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)

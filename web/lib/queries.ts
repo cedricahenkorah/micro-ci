@@ -5,7 +5,7 @@ export const runKeys = {
   all: ["runs"] as const,
   lists: ["runs", "list"] as const,
   list: (page: number) => ["runs", "list", page] as const,
-  detail: (id: number) => ["runs", "detail", id] as const,
+  detail: (id: string) => ["runs", "detail", id] as const,
 };
 
 export function makeQueryClient() {

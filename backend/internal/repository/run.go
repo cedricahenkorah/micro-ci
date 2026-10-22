@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -179,12 +180,12 @@ SELECT r.id, r.repository, r.branch, r.commit_sha, r.status,
        r.active_attempt_id, r.cancel_requested_at, r.retry_of_run_id, r.created_at,
        timing.started_at,
        CASE WHEN r.status NOT IN ('queued', 'running') THEN timing.finished_at END
-FROM (SELECT * FROM runs ORDER BY id DESC LIMIT $1 OFFSET $2) r
+FROM (SELECT * FROM runs ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2) r
 LEFT JOIN LATERAL (
     SELECT MIN(started_at) AS started_at, MAX(finished_at) AS finished_at
     FROM attempts WHERE run_id = r.id
 ) timing ON true
-ORDER BY r.id DESC`
+ORDER BY r.created_at DESC, r.id DESC`
 
 	rows, err := tx.Query(ctx, query, limit, page*int64(limit))
 
@@ -221,7 +222,7 @@ ORDER BY r.id DESC`
 	return result, nil
 }
 
-func (m RunModel) GetRun(ctx context.Context, runID int64) (RunDetails, error) {
+func (m RunModel) GetRun(ctx context.Context, runID uuid.UUID) (RunDetails, error) {
 	ctx, cancel := context.WithTimeout(ctx, m.queryTimeout)
 	defer cancel()
 
@@ -277,7 +278,7 @@ ORDER BY number`
 
 	defer rows.Close()
 
-	attemptIndexes := make(map[int64]int)
+	attemptIndexes := make(map[uuid.UUID]int)
 
 	for rows.Next() {
 		attempt := AttemptDetails{Steps: make([]domain.Step, 0)}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/executor"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -109,7 +110,7 @@ func runLocal(cmd *cobra.Command, args []string) error {
 	var result struct {
 		Message string `json:"message"`
 		Data    struct {
-			ID int64 `json:"id"`
+			ID uuid.UUID `json:"id"`
 		} `json:"data"`
 	}
 
@@ -127,10 +128,10 @@ func runLocal(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("read run response: %w", decodeErr)
 	}
 
-	if result.Data.ID <= 0 {
+	if result.Data.ID == uuid.Nil {
 		return fmt.Errorf("API response did not include a valid run ID")
 	}
 
-	cmd.Printf("Run %d queued.\n", result.Data.ID)
+	cmd.Printf("Run %s queued.\n", result.Data.ID)
 	return nil
 }

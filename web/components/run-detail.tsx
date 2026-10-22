@@ -43,7 +43,7 @@ const failureReasons: Record<FailureKind, string> = {
   cancelled: "Execution was cancelled.",
 };
 
-export function RunDetail({ id }: { id: number }) {
+export function RunDetail({ id }: { id: string }) {
   const query = useRun(id);
 
   return (
@@ -83,7 +83,7 @@ function RunContent({ run }: { run: RunDetails }) {
   const retry = useRetryRun();
   const stream = useRunEvents(run.id);
   const now = useNow();
-  const [selectedAttempt, setSelectedAttempt] = useState<number>();
+  const [selectedAttempt, setSelectedAttempt] = useState<string>();
 
   const attempt =
     run.attempts.find((attempt) => attempt.id === selectedAttempt) ??
@@ -101,7 +101,7 @@ function RunContent({ run }: { run: RunDetails }) {
           <h1>{repositoryName(run.repository)}</h1>
 
           <div className="detail-subtitle">
-            <span>Run #{run.id}</span>
+            <span title={run.id}>Run {run.id.slice(0, 8)}</span>
             <StatusBadge status={run.status} />
 
             <span>
@@ -205,8 +205,11 @@ function RunContent({ run }: { run: RunDetails }) {
       {run.retry_of_run_id && (
         <p className="retry-note">
           Retry of{" "}
-          <Link href={`/runs/${run.retry_of_run_id}`}>
-            run #{run.retry_of_run_id}
+          <Link
+            href={`/runs/${run.retry_of_run_id}`}
+            title={run.retry_of_run_id}
+          >
+            run {run.retry_of_run_id.slice(0, 8)}
             <ChevronRight size={12} />
           </Link>
         </p>
@@ -223,8 +226,8 @@ function RunContent({ run }: { run: RunDetails }) {
 
         {attempt && (
           <Select
-            value={String(attempt.id)}
-            onValueChange={(value) => setSelectedAttempt(Number(value))}
+            value={attempt.id}
+            onValueChange={setSelectedAttempt}
           >
             <SelectTrigger
               aria-label="Select attempt"
@@ -237,7 +240,7 @@ function RunContent({ run }: { run: RunDetails }) {
               {run.attempts.map((attempt) => (
                 <SelectItem
                   key={attempt.id}
-                  value={String(attempt.id)}
+                  value={attempt.id}
                 >
                   Attempt {attempt.number} · {attempt.status.replace("_", " ")}
                 </SelectItem>

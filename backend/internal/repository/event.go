@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -18,23 +19,23 @@ type EventModel struct {
 }
 
 type CreateEventInput struct {
-	AttemptID *int64
+	AttemptID *uuid.UUID
 	Type      domain.EventType
 	StepIndex *int
 	Payload   json.RawMessage
 }
 
-func AppendEvent(ctx context.Context, tx pgx.Tx, runID int64, event CreateEventInput) error {
+func AppendEvent(ctx context.Context, tx pgx.Tx, runID uuid.UUID, event CreateEventInput) error {
 	if tx == nil {
 		return errors.New("transaction is required")
 	}
 
-	if runID <= 0 {
-		return errors.New("runID must be positive")
+	if runID == uuid.Nil {
+		return errors.New("runID must be a non-zero UUID")
 	}
 
-	if event.AttemptID != nil && *event.AttemptID <= 0 {
-		return errors.New("attemptID must be positive")
+	if event.AttemptID != nil && *event.AttemptID == uuid.Nil {
+		return errors.New("attemptID must be a non-zero UUID")
 	}
 
 	if event.Type != domain.EventTypeRunStatus &&
@@ -57,7 +58,7 @@ func AppendEvent(ctx context.Context, tx pgx.Tx, runID int64, event CreateEventI
 		return errors.New("event payload must be valid JSON")
 	}
 
-	var lockedRunID int64
+	var lockedRunID uuid.UUID
 
 	err := tx.QueryRow(ctx, `
 		SELECT id FROM runs
@@ -93,9 +94,9 @@ func AppendEvent(ctx context.Context, tx pgx.Tx, runID int64, event CreateEventI
 	return nil
 }
 
-func (m EventModel) ReadEvents(ctx context.Context, runID, afterSequence int64, limit int) ([]domain.Event, error) {
-	if runID <= 0 {
-		return nil, errors.New("runID must be positive")
+func (m EventModel) ReadEvents(ctx context.Context, runID uuid.UUID, afterSequence int64, limit int) ([]domain.Event, error) {
+	if runID == uuid.Nil {
+		return nil, errors.New("runID must be a non-zero UUID")
 	}
 
 	if afterSequence < 0 {

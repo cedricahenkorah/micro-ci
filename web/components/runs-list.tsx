@@ -181,6 +181,7 @@ export function RunsList() {
                         <Link
                           href={`/runs/${run.id}`}
                           className="run-link"
+                          title={run.id}
                         >
                           <span className={`run-icon status-${run.status}`}>
                             <GitCommitHorizontal size={19} />
@@ -192,9 +193,9 @@ export function RunsList() {
                             </strong>
 
                             <span className="row-secondary">
-                              Run #{run.id}
+                              Run {run.id.slice(0, 8)}
                               {run.retry_of_run_id
-                                ? ` · Retry of #${run.retry_of_run_id}`
+                                ? ` · Retry of ${run.retry_of_run_id.slice(0, 8)}`
                                 : ""}
                             </span>
                           </span>

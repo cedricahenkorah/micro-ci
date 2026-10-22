@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -34,12 +35,12 @@ func (m StepModel) CreateSteps(
 	claim Claim,
 	steps []CreateStepInput,
 ) error {
-	if claim.Run.ID <= 0 {
-		return errors.New("runID must be positive")
+	if claim.Run.ID == uuid.Nil {
+		return errors.New("runID must be a non-zero UUID")
 	}
 
-	if claim.AttemptID <= 0 {
-		return errors.New("attemptID must be positive")
+	if claim.AttemptID == uuid.Nil {
+		return errors.New("attemptID must be a non-zero UUID")
 	}
 
 	if strings.TrimSpace(claim.WorkerID) == "" {
@@ -86,7 +87,7 @@ func (m StepModel) CreateSteps(
    	AND status = 'running'
 	FOR UPDATE`
 
-	var lockedRunID int64
+	var lockedRunID uuid.UUID
 
 	runQueryErr := tx.QueryRow(ctx, runQuery, claim.Run.ID, claim.AttemptID).Scan(&lockedRunID)
 
@@ -106,7 +107,7 @@ func (m StepModel) CreateSteps(
   	AND status = 'running'
 	FOR UPDATE`
 
-	var lockedAttemptID int64
+	var lockedAttemptID uuid.UUID
 
 	attemptQueryErr := tx.QueryRow(ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID).Scan(&lockedAttemptID)
 
@@ -167,12 +168,12 @@ func (m StepModel) StartStep(
 	claim Claim,
 	index int,
 ) error {
-	if claim.Run.ID <= 0 {
-		return errors.New("runID must be positive")
+	if claim.Run.ID == uuid.Nil {
+		return errors.New("runID must be a non-zero UUID")
 	}
 
-	if claim.AttemptID <= 0 {
-		return errors.New("attemptID must be positive")
+	if claim.AttemptID == uuid.Nil {
+		return errors.New("attemptID must be a non-zero UUID")
 	}
 
 	if strings.TrimSpace(claim.WorkerID) == "" {
@@ -209,7 +210,7 @@ func (m StepModel) StartStep(
    	AND status = 'running'
 	FOR UPDATE`
 
-	var lockedRunID int64
+	var lockedRunID uuid.UUID
 
 	runQueryErr := tx.QueryRow(ctx, runQuery, claim.Run.ID, claim.AttemptID).Scan(&lockedRunID)
 
@@ -229,7 +230,7 @@ func (m StepModel) StartStep(
   	AND status = 'running'
 	FOR UPDATE`
 
-	var lockedAttemptID int64
+	var lockedAttemptID uuid.UUID
 
 	attemptQueryErr := tx.QueryRow(ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID).Scan(&lockedAttemptID)
 
@@ -311,12 +312,12 @@ func (m StepModel) FinishStep(
 	index int,
 	result StepResult,
 ) error {
-	if claim.Run.ID <= 0 {
-		return errors.New("runID must be positive")
+	if claim.Run.ID == uuid.Nil {
+		return errors.New("runID must be a non-zero UUID")
 	}
 
-	if claim.AttemptID <= 0 {
-		return errors.New("attemptID must be positive")
+	if claim.AttemptID == uuid.Nil {
+		return errors.New("attemptID must be a non-zero UUID")
 	}
 
 	if strings.TrimSpace(claim.WorkerID) == "" {
@@ -360,7 +361,7 @@ func (m StepModel) FinishStep(
    	AND status = 'running'
 	FOR UPDATE`
 
-	var lockedRunID int64
+	var lockedRunID uuid.UUID
 
 	runQueryErr := tx.QueryRow(ctx, runQuery, claim.Run.ID, claim.AttemptID).Scan(&lockedRunID)
 
@@ -380,7 +381,7 @@ func (m StepModel) FinishStep(
   	AND status = 'running'
 	FOR UPDATE`
 
-	var lockedAttemptID int64
+	var lockedAttemptID uuid.UUID
 
 	attemptQueryErr := tx.QueryRow(ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID).Scan(&lockedAttemptID)
 
@@ -477,12 +478,12 @@ func (m StepModel) SkipPendingSteps(
 	ctx context.Context,
 	claim Claim,
 ) error {
-	if claim.Run.ID <= 0 {
-		return errors.New("runID must be positive")
+	if claim.Run.ID == uuid.Nil {
+		return errors.New("runID must be a non-zero UUID")
 	}
 
-	if claim.AttemptID <= 0 {
-		return errors.New("attemptID must be positive")
+	if claim.AttemptID == uuid.Nil {
+		return errors.New("attemptID must be a non-zero UUID")
 	}
 
 	if strings.TrimSpace(claim.WorkerID) == "" {
@@ -516,7 +517,7 @@ func (m StepModel) SkipPendingSteps(
       AND status = 'running'
     FOR UPDATE`
 
-	var lockedRunID int64
+	var lockedRunID uuid.UUID
 
 	runQueryErr := tx.QueryRow(ctx, runQuery, claim.Run.ID, claim.AttemptID).Scan(&lockedRunID)
 
@@ -537,7 +538,7 @@ func (m StepModel) SkipPendingSteps(
       AND status = 'running'
     FOR UPDATE`
 
-	var lockedAttemptID int64
+	var lockedAttemptID uuid.UUID
 
 	attemptQueryErr := tx.QueryRow(ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID).Scan(&lockedAttemptID)
 
@@ -590,7 +591,7 @@ func (m StepModel) SkipPendingSteps(
     WHERE id = $1
       AND lease_expires_at > clock_timestamp()`
 
-	var validAttemptID int64
+	var validAttemptID uuid.UUID
 
 	leaseErr := tx.QueryRow(ctx, leaseQuery, claim.AttemptID).Scan(&validAttemptID)
 

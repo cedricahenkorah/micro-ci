@@ -1,6 +1,6 @@
 BEGIN;
 
 ALTER TABLE runs
-ADD COLUMN retry_of_run_id BIGINT REFERENCES runs(id);
+ADD COLUMN retry_of_run_id UUID REFERENCES runs(id);
 
 COMMIT;

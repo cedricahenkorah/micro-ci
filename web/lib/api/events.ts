@@ -5,7 +5,7 @@ export type ConnectionState =
   "connecting" | "connected" | "reconnecting" | "closed";
 
 export function subscribeToRun(
-  id: number,
+  id: string,
   callbacks: {
     onEvent: (event: RunEvent) => void;
     onConnection: (state: ConnectionState) => void;

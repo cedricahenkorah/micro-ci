@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -22,12 +23,12 @@ func (m RunModel) Finish(
 	claim Claim,
 	outcome Outcome,
 ) error {
-	if claim.Run.ID <= 0 {
-		return errors.New("runID must be positive")
+	if claim.Run.ID == uuid.Nil {
+		return errors.New("runID must be a non-zero UUID")
 	}
 
-	if claim.AttemptID <= 0 {
-		return errors.New("attemptID must be positive")
+	if claim.AttemptID == uuid.Nil {
+		return errors.New("attemptID must be a non-zero UUID")
 	}
 
 	if strings.TrimSpace(claim.WorkerID) == "" {
@@ -95,7 +96,7 @@ func (m RunModel) Finish(
       AND status = 'running'
     FOR UPDATE`
 
-	var lockedAttemptID int64
+	var lockedAttemptID uuid.UUID
 	var attemptNumber int
 
 	err = tx.QueryRow(ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID).Scan(&lockedAttemptID, &attemptNumber)
@@ -198,7 +199,7 @@ func (m RunModel) Finish(
       AND status = 'running'
     RETURNING id`
 
-	var finishedRunID int64
+	var finishedRunID uuid.UUID
 
 	err = tx.QueryRow(ctx, finishRunQuery, claim.Run.ID, runStatus, claim.AttemptID).Scan(&finishedRunID)
 

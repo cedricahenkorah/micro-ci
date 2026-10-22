@@ -11,6 +11,7 @@ import (
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
 	"github.com/cedricahenkorah/micro-ci/backend/internal/repository"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -75,7 +76,7 @@ func (w *LogWriter) flush() (err error) {
 		w.err = err
 	}()
 
-	if w.claim.Run.ID <= 0 || w.claim.AttemptID <= 0 || strings.TrimSpace(w.claim.WorkerID) == "" {
+	if w.claim.Run.ID == uuid.Nil || w.claim.AttemptID == uuid.Nil || strings.TrimSpace(w.claim.WorkerID) == "" {
 		return errors.New("a valid claim is required")
 	}
 
@@ -97,7 +98,7 @@ func (w *LogWriter) flush() (err error) {
 		_ = tx.Rollback(cleanupCtx)
 	}()
 
-	var lockedRunID int64
+	var lockedRunID uuid.UUID
 	err = tx.QueryRow(ctx, `
 		SELECT id FROM runs
 		WHERE id = $1 AND active_attempt_id = $2 AND status = 'running'
@@ -110,7 +111,7 @@ func (w *LogWriter) flush() (err error) {
 		return fmt.Errorf("lock log run: %w", err)
 	}
 
-	var lockedAttemptID int64
+	var lockedAttemptID uuid.UUID
 	err = tx.QueryRow(ctx, `
 		SELECT id FROM attempts
 		WHERE id = $1 AND run_id = $2 AND worker_id = $3 AND status = 'running'

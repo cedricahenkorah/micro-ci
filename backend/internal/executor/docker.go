@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type DockerExecutor struct {
@@ -26,8 +28,8 @@ func (d DockerExecutor) Prepare(
 		return Environment{}, fmt.Errorf("image is required")
 	}
 
-	if spec.AttemptID <= 0 {
-		return Environment{}, fmt.Errorf("attemptID must be a positive integer")
+	if spec.AttemptID == uuid.Nil {
+		return Environment{}, fmt.Errorf("attemptID must be a non-zero UUID")
 	}
 
 	if !filepath.IsAbs(spec.Workspace) {
@@ -51,7 +53,7 @@ func (d DockerExecutor) Prepare(
 	}
 
 	containerName := fmt.Sprintf(
-		"micro-ci-attempt-%d-%s",
+		"micro-ci-attempt-%s-%s",
 		spec.AttemptID,
 		strings.ToLower(rand.Text()),
 	)
@@ -94,7 +96,7 @@ func (d DockerExecutor) Prepare(
 		"create",
 		"--name", containerName,
 		"--label", "micro-ci.managed=true",
-		"--label", fmt.Sprintf("micro-ci.attempt-id=%d", spec.AttemptID),
+		"--label", fmt.Sprintf("micro-ci.attempt-id=%s", spec.AttemptID),
 		"--init",
 		"--mount", fmt.Sprintf("type=bind,src=%s,dst=/workspace", spec.Workspace),
 		"--workdir", "/workspace",

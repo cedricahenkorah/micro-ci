@@ -23,7 +23,7 @@ export function LogViewer({
   active,
 }: {
   logs: LogEvent[];
-  attemptId: number;
+  attemptId: string;
   stepIndex?: number;
   connection: ConnectionState;
   active: boolean;

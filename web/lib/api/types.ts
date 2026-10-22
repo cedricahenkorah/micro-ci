@@ -14,14 +14,14 @@ export type FailureKind =
   | "cancelled";
 
 export interface Run {
-  id: number;
+  id: string;
   repository: string;
   branch: string;
   commit_sha: string;
   status: RunStatus;
-  active_attempt_id?: number;
+  active_attempt_id?: string;
   cancel_requested_at?: string;
-  retry_of_run_id?: number;
+  retry_of_run_id?: string;
   created_at: string;
 }
 
@@ -31,8 +31,8 @@ export interface RunSummary extends Run {
 }
 
 export interface Attempt {
-  id: number;
-  run_id: number;
+  id: string;
+  run_id: string;
   number: number;
   worker_id: string;
   lease_expires_at: string;
@@ -44,7 +44,7 @@ export interface Attempt {
 }
 
 export interface Step {
-  attempt_id: number;
+  attempt_id: string;
   index: number;
   name: string;
   command: string;
@@ -81,8 +81,8 @@ export interface ApiErrorResponse {
 }
 
 interface EventBase {
-  run_id: number;
-  attempt_id?: number;
+  run_id: string;
+  attempt_id?: string;
   sequence: number;
   step_index?: number;
   timestamp: string;

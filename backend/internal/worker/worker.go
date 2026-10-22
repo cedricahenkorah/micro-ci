@@ -117,7 +117,7 @@ func poll(
 		}
 
 		app.InfoLog.Printf(
-			"Run claimed: worker=%s slot=%d run=%d attempt_id=%d",
+			"Run claimed: worker=%s slot=%d run=%s attempt_id=%s",
 			workerID, slot, claim.Run.ID, claim.AttemptID,
 		)
 
@@ -130,12 +130,12 @@ func poll(
 		if processClaimErr != nil {
 			if errors.Is(processClaimErr, domain.ErrLeaseLost) {
 				app.InfoLog.Printf(
-					"Lease lost: run=%d attempt_id=%d",
+					"Lease lost: run=%s attempt_id=%s",
 					claim.Run.ID, claim.AttemptID,
 				)
 			} else {
 				app.ErrorLog.Printf(
-					"Processing failed: run=%d attempt_id=%d error=%v",
+					"Processing failed: run=%s attempt_id=%s error=%v",
 					claim.Run.ID, claim.AttemptID, processClaimErr,
 				)
 			}
@@ -215,7 +215,7 @@ func processClaim(
 				}
 
 				app.ErrorLog.Printf(
-					"Heartbeat failed: run=%d attempt_id=%d error=%v",
+					"Heartbeat failed: run=%s attempt_id=%s error=%v",
 					claim.Run.ID, claim.AttemptID, err,
 				)
 				continue
@@ -304,12 +304,12 @@ func executeClaim(
 
 	workspace, workspaceErr := os.MkdirTemp(
 		app.Config.Worker.WorkspaceRoot,
-		fmt.Sprintf("attempt-%d-", claim.AttemptID),
+		fmt.Sprintf("attempt-%s-", claim.AttemptID),
 	)
 
 	if workspaceErr != nil {
 		app.ErrorLog.Printf(
-			"Create workspace failed: run=%d attempt_id=%d error=%v",
+			"Create workspace failed: run=%s attempt_id=%s error=%v",
 			claim.Run.ID, claim.AttemptID, workspaceErr,
 		)
 
@@ -324,7 +324,7 @@ func executeClaim(
 	defer func() {
 		if !removeWorkspace {
 			app.ErrorLog.Printf(
-				"Workspace retained: run=%d attempt_id=%d path=%s",
+				"Workspace retained: run=%s attempt_id=%s path=%s",
 				claim.Run.ID, claim.AttemptID, workspace,
 			)
 			return
@@ -334,7 +334,7 @@ func executeClaim(
 
 		if removeErr != nil {
 			app.ErrorLog.Printf(
-				"Remove workspace failed: run=%d attempt_id=%d path=%s error=%v",
+				"Remove workspace failed: run=%s attempt_id=%s path=%s error=%v",
 				claim.Run.ID, claim.AttemptID, workspace, removeErr,
 			)
 		}
@@ -353,7 +353,7 @@ func executeClaim(
 		}
 
 		app.ErrorLog.Printf(
-			"Checkout failed: run=%d attempt_id=%d error=%v",
+			"Checkout failed: run=%s attempt_id=%s error=%v",
 			claim.Run.ID, claim.AttemptID, checkoutErr,
 		)
 
@@ -372,7 +372,7 @@ func executeClaim(
 			return repository.Outcome{}, ctx.Err()
 		}
 
-		app.ErrorLog.Printf("Failed to open %s: run=%d attempt_id=%d error=%v", pipelinePath, claim.Run.ID, claim.AttemptID, openErr)
+		app.ErrorLog.Printf("Failed to open %s: run=%s attempt_id=%s error=%v", pipelinePath, claim.Run.ID, claim.AttemptID, openErr)
 
 		return repository.Outcome{
 			Status:      domain.AttemptStatusFailed,
@@ -389,7 +389,7 @@ func executeClaim(
 			return repository.Outcome{}, ctx.Err()
 		}
 
-		app.ErrorLog.Printf("Failed to parse %s: run=%d attempt_id=%d error=%v", pipelinePath, claim.Run.ID, claim.AttemptID, parseErr)
+		app.ErrorLog.Printf("Failed to parse %s: run=%s attempt_id=%s error=%v", pipelinePath, claim.Run.ID, claim.AttemptID, parseErr)
 
 		return repository.Outcome{
 			Status:      domain.AttemptStatusFailed,
@@ -412,7 +412,7 @@ func executeClaim(
 	}
 
 	app.InfoLog.Printf(
-		"Pipeline loaded: run=%d attempt_id=%d image=%s steps=%d",
+		"Pipeline loaded: run=%s attempt_id=%s image=%s steps=%d",
 		claim.Run.ID, claim.AttemptID,
 		pipelineConfig.Image, len(pipelineConfig.Steps),
 	)
@@ -451,7 +451,7 @@ func executeClaim(
 		removeWorkspace = env.ContainerID == ""
 
 		app.ErrorLog.Printf(
-			"Prepare failed: run=%d attempt_id=%d error=%v",
+			"Prepare failed: run=%s attempt_id=%s error=%v",
 			claim.Run.ID, claim.AttemptID, prepareErr,
 		)
 
@@ -477,7 +477,7 @@ func executeClaim(
 
 		if destroyErr != nil {
 			app.ErrorLog.Printf(
-				"Destroy failed: run=%d attempt_id=%d container=%s error=%v",
+				"Destroy failed: run=%s attempt_id=%s container=%s error=%v",
 				claim.Run.ID, claim.AttemptID, env.ContainerID, destroyErr,
 			)
 
@@ -523,7 +523,7 @@ func executeClaim(
 		}
 
 		app.InfoLog.Printf(
-			"Step started: run=%d attempt_id=%d step=%d name=%q",
+			"Step started: run=%s attempt_id=%s step=%d name=%q",
 			claim.Run.ID, claim.AttemptID, i+1, step.Name,
 		)
 
@@ -575,7 +575,7 @@ func executeClaim(
 
 		if flushErr != nil {
 			app.ErrorLog.Printf(
-				"Log flush failed: run=%d attempt_id=%d step=%d error=%v",
+				"Log flush failed: run=%s attempt_id=%s step=%d error=%v",
 				claim.Run.ID, claim.AttemptID, i+1, flushErr,
 			)
 
@@ -619,7 +619,7 @@ func executeClaim(
 
 		if execErr != nil {
 			app.ErrorLog.Printf(
-				"Step execution failed: run=%d attempt_id=%d step=%d error=%v",
+				"Step execution failed: run=%s attempt_id=%s step=%d error=%v",
 				claim.Run.ID, claim.AttemptID, i+1, execErr,
 			)
 
@@ -631,7 +631,7 @@ func executeClaim(
 
 		if exitCode != 0 {
 			app.ErrorLog.Printf(
-				"Step failed: run=%d attempt_id=%d step=%d exit_code=%d",
+				"Step failed: run=%s attempt_id=%s step=%d exit_code=%d",
 				claim.Run.ID, claim.AttemptID, i+1, exitCode,
 			)
 
@@ -642,7 +642,7 @@ func executeClaim(
 		}
 
 		app.InfoLog.Printf(
-			"Step succeeded: run=%d attempt_id=%d step=%d name=%q",
+			"Step succeeded: run=%s attempt_id=%s step=%d name=%q",
 			claim.Run.ID, claim.AttemptID, i+1, step.Name,
 		)
 	}

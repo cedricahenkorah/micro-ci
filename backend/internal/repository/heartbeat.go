@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -21,12 +22,12 @@ func (m RunModel) Heartbeat(
 	claim Claim,
 	leaseDuration time.Duration,
 ) (Control, error) {
-	if claim.Run.ID <= 0 {
-		return Control{}, errors.New("runID must be positive")
+	if claim.Run.ID == uuid.Nil {
+		return Control{}, errors.New("runID must be a non-zero UUID")
 	}
 
-	if claim.AttemptID <= 0 {
-		return Control{}, errors.New("attemptID must be positive")
+	if claim.AttemptID == uuid.Nil {
+		return Control{}, errors.New("attemptID must be a non-zero UUID")
 	}
 
 	if strings.TrimSpace(claim.WorkerID) == "" {
@@ -86,7 +87,7 @@ func (m RunModel) Heartbeat(
       AND status = 'running'
     FOR UPDATE`
 
-	var lockedAttemptID int64
+	var lockedAttemptID uuid.UUID
 
 	err = tx.QueryRow(
 		ctx, attemptQuery, claim.AttemptID, claim.Run.ID, claim.WorkerID,

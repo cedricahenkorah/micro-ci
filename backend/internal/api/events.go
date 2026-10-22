@@ -11,13 +11,14 @@ import (
 
 	"github.com/cedricahenkorah/micro-ci/backend/internal/domain"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
-	runID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	runID, err := uuid.Parse(chi.URLParam(r, "id"))
 
-	if err != nil || runID <= 0 {
-		s.clientError(w, http.StatusBadRequest, "id must be a positive run ID")
+	if err != nil || runID == uuid.Nil {
+		s.clientError(w, http.StatusBadRequest, "id must be a non-zero run UUID")
 		return
 	}
 
@@ -91,7 +92,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 				data, err := json.Marshal(event)
 
 				if err != nil {
-					s.app.ErrorLog.Printf("encode stream event: run=%d error=%v", runID, err)
+					s.app.ErrorLog.Printf("encode stream event: run=%s error=%v", runID, err)
 					return
 				}
 
@@ -129,7 +130,7 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			if r.Context().Err() == nil {
-				s.app.ErrorLog.Printf("read stream events: run=%d error=%v", runID, err)
+				s.app.ErrorLog.Printf("read stream events: run=%s error=%v", runID, err)
 			}
 			return
 		}
